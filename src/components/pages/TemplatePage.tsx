@@ -36,6 +36,7 @@ import { SystemDialog } from '@/components/ui/SystemDialog';
 import { ModalOverlay } from '@/components/ui/ModalOverlay';
 import { SystemTooltip } from '@/components/ui/SystemTooltip';
 import { useGlobalLoading } from '@/components/ui/GlobalLoading';
+import { useAppShell } from '@/contexts/AppShellContext';
 import { previewTableText } from '@/lib/previewText';
 import { parseDocxEnhanced } from '@/lib/docxImport/enhancedDocxParser';
 import { sortByCreatedAtDesc } from '@/lib/sortByCreatedAtDesc';
@@ -575,6 +576,7 @@ function StatusBadge({ status }: { status: Template['status'] }) {
 
 export default function TemplatePage() {
   const globalLoading = useGlobalLoading();
+  const { setImmersive } = useAppShell();
   const classificationStore = useMemo(() => getClassificationStore(), []);
   const [templates, setTemplates] = useState<Template[]>(() => {
     const storedTemplates = getMockTemplates();
@@ -586,6 +588,11 @@ export default function TemplatePage() {
   });
   const [editingTemplate, setEditingTemplate] = useState<Template | null>(null);
   const [editingTemplateFile, setEditingTemplateFile] = useState<File | null>(null);
+
+  useEffect(() => {
+    setImmersive(!!editingTemplate);
+    return () => setImmersive(false);
+  }, [editingTemplate, setImmersive]);
 
   // 标段筛选
   const [selectedBusinessSectorId, setSelectedBusinessSectorId] = useState('');
@@ -1177,14 +1184,12 @@ export default function TemplatePage() {
 
   if (editingTemplate) {
     return (
-      <div className="fixed top-14 left-64 right-0 bottom-0 z-40 bg-white">
-        <WpsTemplateEditor
-          template={editingTemplate}
-          onBack={handleCloseEditor}
-          onSave={handleSaveTemplate}
-          initialFile={editingTemplateFile}
-        />
-      </div>
+      <WpsTemplateEditor
+        template={editingTemplate}
+        onBack={handleCloseEditor}
+        onSave={handleSaveTemplate}
+        initialFile={editingTemplateFile}
+      />
     );
   }
 

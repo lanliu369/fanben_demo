@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
+import { AppShellContext } from '@/contexts/AppShellContext';
 import {
   LayoutDashboard,
   FolderTree,
@@ -59,7 +60,9 @@ export default function MainLayout() {
   const [resourceExpanded, setResourceExpanded] = useState(true);
   const [username, setUsername] = useState<string>('用户');
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [immersive, setImmersive] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
+  const shellValue = useMemo(() => ({ setImmersive }), []);
 
   useEffect(() => {
     try {
@@ -126,9 +129,10 @@ export default function MainLayout() {
   };
 
   return (
+    <AppShellContext.Provider value={shellValue}>
     <div className="flex h-screen bg-gray-50 overflow-hidden">
       {/* 左侧系统导航 */}
-      <aside className="w-64 shrink-0 flex flex-col bg-white border-r border-slate-200 overflow-hidden">
+      <aside className={`w-64 shrink-0 flex flex-col bg-white border-r border-slate-200 overflow-hidden ${immersive ? 'hidden' : ''}`}>
         <div className="px-5 py-5 border-b border-slate-100 shrink-0">
           <p className="text-sm font-semibold text-slate-900 leading-tight">招标文件范本</p>
           <p className="text-xs text-slate-500 mt-0.5">编制工具平台</p>
@@ -207,7 +211,7 @@ export default function MainLayout() {
 
       {/* 右侧主内容 */}
       <main className="flex-1 flex flex-col overflow-hidden min-w-0">
-        <header className="shrink-0 h-14 bg-white border-b border-slate-200 px-6 flex items-center justify-between">
+        <header className={`shrink-0 h-14 bg-white border-b border-slate-200 px-6 flex items-center justify-between ${immersive ? 'hidden' : ''}`}>
           <p className="text-base font-semibold text-slate-900">
             {tabs.find((t) => t.key === activeTab)?.label}
           </p>
@@ -244,10 +248,11 @@ export default function MainLayout() {
           </div>
         </header>
 
-        <div className="flex-1 overflow-auto bg-gray-50">
-          <div className="max-w-[1600px] mx-auto px-6 py-5">{renderContent()}</div>
+        <div className={immersive ? 'flex-1 overflow-hidden bg-white' : 'flex-1 overflow-auto bg-gray-50'}>
+          <div className={immersive ? 'h-full' : 'max-w-[1600px] mx-auto px-6 py-5'}>{renderContent()}</div>
         </div>
       </main>
     </div>
+    </AppShellContext.Provider>
   );
 }
