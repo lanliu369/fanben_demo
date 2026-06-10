@@ -17,7 +17,8 @@ RUN npm run build
 FROM base AS runner
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
-ENV PORT=3000
+# CloudBase / K8s 健康检查默认探测 80 端口
+ENV PORT=80
 ENV HOSTNAME=0.0.0.0
 
 RUN addgroup --system --gid 1001 nodejs \
@@ -30,5 +31,5 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 RUN mkdir -p public/documents && chown -R nextjs:nodejs public/documents
 
 USER nextjs
-EXPOSE 3000
+EXPOSE 80
 CMD ["node", "server.js"]
