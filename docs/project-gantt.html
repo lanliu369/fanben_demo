@@ -1,0 +1,1196 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>项目里程碑甘特图（可编辑）</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #f5f6f7;
+    padding: 24px;
+    color: #1f2329;
+  }
+  .header {
+    margin-bottom: 16px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .header h1 {
+    font-size: 20px;
+    font-weight: 600;
+    color: #1f2329;
+    margin-bottom: 4px;
+  }
+  .header p {
+    font-size: 13px;
+    color: #646a73;
+  }
+  .toolbar {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .toolbar button {
+    padding: 6px 14px;
+    border-radius: 6px;
+    border: 1px solid #dee0e3;
+    background: #fff;
+    font-size: 13px;
+    cursor: pointer;
+    color: #1f2329;
+    transition: all 0.2s;
+  }
+  .toolbar button:hover {
+    background: #f5f6f7;
+    border-color: #bbb;
+  }
+  .toolbar button.primary {
+    background: #3370ff;
+    color: #fff;
+    border-color: #3370ff;
+  }
+  .toolbar button.primary:hover {
+    background: #2860e0;
+  }
+  .toolbar button.danger {
+    color: #d92b2b;
+    border-color: #ffd6d6;
+  }
+  .toolbar button.danger:hover {
+    background: #fff2f0;
+  }
+
+  .legend {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #646a73;
+  }
+  .legend-color {
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+  }
+
+  .gantt-container {
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+    overflow: auto;
+    border: 1px solid #dee0e3;
+    display: flex;
+    justify-content: center;
+  }
+  .gantt-wrap {
+    display: inline-block;
+    position: relative;
+  }
+  .gantt-header {
+    display: flex;
+    border-bottom: 1px solid #dee0e3;
+    background: #f5f6f7;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  .task-col {
+    width: 220px;
+    min-width: 220px;
+    padding: 10px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #646a73;
+    border-right: 1px solid #dee0e3;
+    background: #f5f6f7;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .timeline-header {
+    display: flex;
+  }
+  .week-cell {
+    width: 60px;
+    min-width: 60px;
+    padding: 10px 4px;
+    text-align: center;
+    font-size: 12px;
+    font-weight: 600;
+    color: #646a73;
+    border-right: 1px solid #e5e6eb;
+  }
+  .week-cell.milestone-week {
+    background: #fff2f0;
+    color: #d92b2b;
+  }
+  .gantt-body {
+    position: relative;
+  }
+  .gantt-row {
+    display: flex;
+    border-bottom: 1px solid #f0f1f2;
+    height: 38px;
+    align-items: center;
+    position: relative;
+  }
+  .gantt-row:hover {
+    background: #f5f6f7;
+  }
+  .gantt-row.group-header {
+    background: #f5f6f7;
+    font-weight: 600;
+    height: 34px;
+  }
+  .gantt-row.group-header .task-name {
+    color: #1f2329;
+  }
+  .task-name {
+    width: 220px;
+    min-width: 220px;
+    padding: 0 12px;
+    font-size: 13px;
+    color: #1f2329;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    border-right: 1px solid #f0f1f2;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .task-name .tag {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 2px;
+    margin-right: 8px;
+    flex-shrink: 0;
+  }
+  .task-name .task-text {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .task-actions {
+    display: none;
+    gap: 4px;
+    margin-left: 8px;
+  }
+  .gantt-row:hover .task-actions {
+    display: flex;
+  }
+  .task-actions button {
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    font-size: 14px;
+    padding: 2px 4px;
+    border-radius: 3px;
+    color: #8f959e;
+  }
+  .task-actions button:hover {
+    background: #e5e6eb;
+    color: #1f2329;
+  }
+  .task-actions button.add-btn:hover {
+    color: #3370ff;
+  }
+  .task-actions button.del-btn:hover {
+    color: #d92b2b;
+  }
+  .timeline-body {
+    flex: 1;
+    display: flex;
+    position: relative;
+    height: 100%;
+  }
+  .timeline-cell {
+    flex: 1;
+    min-width: 60px;
+    border-right: 1px dashed #e5e6eb;
+    height: 100%;
+  }
+  .bar {
+    position: absolute;
+    height: 22px;
+    top: 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 6px;
+    white-space: nowrap;
+    overflow: visible;
+    cursor: pointer;
+    transition: opacity 0.2s, box-shadow 0.2s;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+    user-select: none;
+    z-index: 1;
+  }
+  .bar:hover {
+    opacity: 0.9;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+    z-index: 5;
+  }
+  .bar-frontend { background: #3370ff; }
+  .bar-backend { background: #00b96b; }
+  .bar-test { background: #f5a623; }
+  .bar-arch { background: #7b67ee; }
+  .bar-devops { background: #14c9c9; }
+  .bar-review { background: #8f959e; }
+  .bar-integration { background: #a855f7; }
+  .bar-milestone { background: #d92b2b; }
+
+  .progress-bar {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    height: 3px;
+    background: rgba(255,255,255,0.5);
+    border-radius: 0 0 0 4px;
+  }
+  .bar-delete {
+    position: absolute;
+    right: 2px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.3);
+    color: #fff;
+    font-size: 10px;
+    line-height: 14px;
+    text-align: center;
+    cursor: pointer;
+    display: none;
+  }
+  .bar:hover .bar-delete {
+    display: block;
+  }
+  .bar-delete:hover {
+    background: rgba(217,43,43,0.8);
+  }
+
+  .milestone-diamond {
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    background: #d92b2b;
+    transform: rotate(45deg);
+    top: 13px;
+    z-index: 6;
+    box-shadow: 0 1px 3px rgba(217,43,43,0.3);
+  }
+  .milestone-label {
+    position: absolute;
+    top: -1px;
+    font-size: 10px;
+    color: #d92b2b;
+    font-weight: 600;
+    white-space: nowrap;
+    background: #fff;
+    padding: 1px 4px;
+    border-radius: 3px;
+    border: 1px solid #ffd6d6;
+    z-index: 7;
+  }
+
+  .tooltip {
+    position: fixed;
+    background: #1f2329;
+    color: #fff;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    line-height: 1.6;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s;
+    z-index: 100;
+    max-width: 280px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  }
+  .tooltip.show { opacity: 1; }
+  .tooltip-title { font-weight: 600; margin-bottom: 4px; }
+  .tooltip-row { color: #bbb; font-size: 11px; }
+
+  /* Edit Modal */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.4);
+    z-index: 200;
+    display: none;
+    align-items: center;
+    justify-content: center;
+  }
+  .modal-overlay.show { display: flex; }
+  .modal {
+    background: #fff;
+    border-radius: 8px;
+    width: 420px;
+    max-width: 90vw;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+    overflow: hidden;
+  }
+  .modal-header {
+    padding: 14px 16px;
+    border-bottom: 1px solid #f0f1f2;
+    font-size: 15px;
+    font-weight: 600;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .modal-close {
+    border: none;
+    background: none;
+    font-size: 20px;
+    cursor: pointer;
+    color: #8f959e;
+    line-height: 1;
+  }
+  .modal-close:hover { color: #1f2329; }
+  .modal-body {
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .form-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .form-row label {
+    font-size: 12px;
+    color: #646a73;
+    font-weight: 500;
+  }
+  .form-row input, .form-row select, .form-row textarea {
+    padding: 8px 10px;
+    border: 1px solid #dee0e3;
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+  }
+  .form-row input:focus, .form-row select:focus, .form-row textarea:focus {
+    border-color: #3370ff;
+  }
+  .form-row textarea {
+    resize: vertical;
+    min-height: 60px;
+  }
+  .form-row-inline {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .modal-footer {
+    padding: 12px 16px;
+    border-top: 1px solid #f0f1f2;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  .modal-footer button {
+    padding: 7px 16px;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    border: 1px solid #dee0e3;
+    background: #fff;
+  }
+  .modal-footer button.primary {
+    background: #3370ff;
+    color: #fff;
+    border-color: #3370ff;
+  }
+  .modal-footer button.danger {
+    color: #d92b2b;
+    border-color: #ffd6d6;
+    margin-right: auto;
+  }
+
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(60px);
+    background: #1f2329;
+    color: #fff;
+    padding: 10px 20px;
+    border-radius: 6px;
+    font-size: 13px;
+    z-index: 300;
+    transition: transform 0.3s;
+    pointer-events: none;
+  }
+  .toast.show {
+    transform: translateX(-50%) translateY(0);
+  }
+
+  /* 打印/PDF 导出时保留颜色 + 避免行跨页断裂 */
+  @media print {
+    .bar, .bar-frontend, .bar-backend, .bar-test, .bar-arch, .bar-devops, .bar-review, .bar-integration, .bar-milestone,
+    .milestone-diamond, .milestone-label, .legend-color, .week-cell.milestone-week,
+    .progress-bar, .gantt-row.group-header, .gantt-row:hover {
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    /* 禁止甘特图行在分页处被截断 */
+    .gantt-row {
+      break-inside: avoid !important;
+      page-break-inside: avoid !important;
+    }
+    /* 组标题与紧随其后的第一行尽量保持在一页 */
+    .gantt-row.group-header {
+      break-after: avoid !important;
+      page-break-after: avoid !important;
+    }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>📅 项目里程碑甘特图（可编辑）</h1>
+    <p>双击条形图可直接编辑 · 自动保存到浏览器</p>
+  </div>
+  <div class="toolbar">
+    <button onclick="exportJSON()">📥 导出 JSON</button>
+    <button onclick="importJSON()">📤 导入 JSON</button>
+    <button onclick="exportCSV()">📊 导出 CSV</button>
+    <button id="undoBtn" onclick="undo()">↶ 撤销</button>
+    <div style="display:flex;align-items:center;gap:8px;margin-left:auto;">
+      <select id="versionSelect" onchange="switchVersion(this.value)" style="padding:6px 10px;border-radius:6px;border:1px solid #d9d9d9;font-size:13px;cursor:pointer;outline:none;"></select>
+      <button onclick="addNewVersion()">➕ 新增版本</button>
+    </div>
+  </div>
+</div>
+
+<div class="legend">
+  <div class="legend-item"><div class="legend-color" style="background:#3370ff"></div>前端开发</div>
+  <div class="legend-item"><div class="legend-color" style="background:#00b96b"></div>后端开发</div>
+  <div class="legend-item"><div class="legend-color" style="background:#f5a623"></div>测试工程师</div>
+  <div class="legend-item"><div class="legend-color" style="background:#7b67ee"></div>架构师</div>
+  <div class="legend-item"><div class="legend-color" style="background:#14c9c9"></div>运维/DevOps</div>
+  <div class="legend-item"><div class="legend-color" style="background:#8f959e"></div>技术评审</div>
+  <div class="legend-item"><div class="legend-color" style="background:#a855f7"></div>前后端联调</div>
+  <div class="legend-item"><div class="legend-color" style="background:#d92b2b"></div>里程碑节点</div>
+</div>
+
+<div class="gantt-container">
+  <div class="gantt-wrap">
+    <div class="gantt-header">
+      <div class="task-col">任务 / 角色</div>
+      <div class="timeline-header" id="timelineHeader"></div>
+    </div>
+    <div class="gantt-body" id="ganttBody"></div>
+  </div>
+</div>
+
+<div class="tooltip" id="tooltip"></div>
+<div class="toast" id="toast"></div>
+
+<!-- Edit Modal -->
+<div class="modal-overlay" id="editModal">
+  <div class="modal">
+    <div class="modal-header">
+      <span id="editModalTitle">编辑任务</span>
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <label>名称</label>
+        <input type="text" id="editName" placeholder="例如：💻 品类管理页面">
+      </div>
+      <div class="form-row" id="taskFieldRole">
+        <label>角色</label>
+        <select id="editRole">
+          <option value="frontend">前端开发</option>
+          <option value="backend">后端开发</option>
+          <option value="test">测试工程师</option>
+          <option value="arch">架构师</option>
+          <option value="devops">运维/DevOps</option>
+          <option value="review">技术评审</option>
+          <option value="integration">前后端联调</option>
+        </select>
+      </div>
+      <div class="form-row-inline" id="taskFieldStartEnd">
+        <div class="form-row">
+          <label>开始周</label>
+          <input type="number" id="editStart" min="1" max="20" step="0.5">
+        </div>
+        <div class="form-row">
+          <label>结束周</label>
+          <input type="number" id="editEnd" min="1" max="20" step="0.5">
+        </div>
+      </div>
+      <div class="form-row" id="milestoneFieldWeek" style="display:none">
+        <label>周次</label>
+        <input type="number" id="editWeek" min="1" max="20" step="1">
+      </div>
+      <div class="form-row" id="taskFieldProgress">
+        <label>进度 (%)</label>
+        <input type="number" id="editProgress" min="0" max="100">
+      </div>
+      <div class="form-row">
+        <label>详细描述</label>
+        <textarea id="editDesc" rows="2"></textarea>
+      </div>
+      <div class="form-row">
+        <label>备注</label>
+        <textarea id="editNote" rows="2" placeholder="补充说明、风险、依赖等"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="danger" onclick="deleteCurrentTask()">删除</button>
+      <button onclick="closeModal()">取消</button>
+      <button class="primary" onclick="saveTask()">保存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const WEEK_WIDTH = 60;
+let WEEKS = 14;
+
+const DEFAULT_TASKS = [
+  { group: 'M0 项目启动与基线建立', type: 'group' },
+  { name: '🔧 开发环境搭建', role: 'frontend', start: 1, end: 1, progress: 100, desc: 'Node.js / Next.js / Tailwind 环境配置' },
+  { name: '🔧 WPS 预研 Demo', role: 'frontend', start: 1, end: 1, progress: 100, desc: 'WPS WebOffice JSSDK 最小可运行 Demo' },
+  { name: '🔧 接口契约定义', role: 'backend', start: 1, end: 1, progress: 100, desc: '品类同步接口契约 + 审计日志接口设计' },
+  { name: '📋 测试计划制定', role: 'test', start: 1, end: 1, progress: 100, desc: '测试计划与准入标准，覆盖 P0/P1 需求' },
+  { name: '📋 技术方案评审', role: 'review', start: 1, end: 1, progress: 100, desc: '技术方案评审会议（第2天）' },
+
+  { group: 'M1 基础设施 + P0 核心（W2-W3）', type: 'group' },
+  { name: '💻 品类管理页面', role: 'frontend', start: 2, end: 3, progress: 0, desc: '三级树形、搜索、同步、操作日志' },
+  { name: '💻 数据看板页面', role: 'frontend', start: 2, end: 3, progress: 0, desc: '统计卡片、待办检测、快速入口' },
+  { name: '💻 公共组件封装', role: 'frontend', start: 2, end: 2.5, progress: 0, desc: 'Dialog、Log、Picker 等公共组件' },
+  { name: '⚙️ 品类同步接口', role: 'backend', start: 2, end: 3, progress: 0, desc: '/api/categories/sync 真实数据联调' },
+  { name: '🧪 品类/看板测试用例', role: 'test', start: 2, end: 3, progress: 0, desc: '编写并执行测试用例' },
+  { name: '🔗 品类同步接口联调', role: 'integration', start: 3, end: 3, progress: 0, desc: '前后端品类同步接口真实数据联调' },
+  { name: '📋 组件设计评审', role: 'review', start: 2.5, end: 2.5, progress: 0, desc: '品类管理组件设计评审（第3天）' },
+
+  { group: 'M2 资源沉淀体系（W4-W5）', type: 'group' },
+  { name: '💻 富文本编辑器集成', role: 'frontend', start: 4, end: 4.5, progress: 0, desc: 'Plate/Tiptap 选型与封装，SSR 禁用策略' },
+  { name: '💻 四资源模块页面', role: 'frontend', start: 4.5, end: 5, progress: 0, desc: '文本/资格/评标/合同（复用 TextPage）' },
+  { name: '💻 范本变量管理', role: 'frontend', start: 4, end: 5, progress: 0, desc: '全局变量 CRUD、Key 规范化、分页' },
+  { name: '⚙️ 资源 CRUD 接口', role: 'backend', start: 4, end: 5, progress: 0, desc: '资源增删改查 + 版本历史存储' },
+  { name: '🧪 资源模块测试', role: 'test', start: 4.5, end: 5, progress: 0, desc: '编辑器兼容性 + 资源功能测试' },
+  { name: '🔗 资源模块接口联调', role: 'integration', start: 5, end: 5, progress: 0, desc: '资源CRUD + 版本历史前后端联调' },
+  { name: '📋 编辑器选型评审', role: 'review', start: 4, end: 4, progress: 0, desc: '富文本编辑器选型决策（第1天）' },
+
+  { group: 'M3 范本核心业务（W6-W7）', type: 'group' },
+  { name: '💻 范本列表/筛选/搜索', role: 'frontend', start: 6, end: 6.5, progress: 0, desc: '分页、品类级联筛选、日期范围、搜索' },
+  { name: '💻 新建/复制/导入弹窗', role: 'frontend', start: 6, end: 7, progress: 0, desc: '文件上传解析（mammoth/pdfjs）' },
+  { name: '💻 编辑范本信息', role: 'frontend', start: 6.5, end: 7, progress: 0, desc: '元信息编辑弹窗（齿轮图标入口）' },
+  { name: '⚙️ 文件解析服务', role: 'backend', start: 6, end: 6.5, progress: 0, desc: 'docx/pdf 解析 + 章节结构提取' },
+  { name: '⚙️ 范本 CRUD + 深拷贝', role: 'backend', start: 6.5, end: 7, progress: 0, desc: '复制范本 ID 映射与深拷贝逻辑' },
+  { name: '🧪 范本管理测试', role: 'test', start: 6.5, end: 7, progress: 0, desc: '5 种以上 docx 导入兼容性测试' },
+  { name: '🔗 范本管理接口联调', role: 'integration', start: 7, end: 7, progress: 0, desc: '范本CRUD + 文件解析 + 深拷贝联调' },
+  { name: '📋 文件解析封装评审', role: 'review', start: 6.5, end: 6.5, progress: 0, desc: 'mammoth/pdfjs 封装评审（第5天）' },
+
+  { group: 'M4 在线编辑集成（W8-W10）⚠️ 高风险', type: 'group' },
+  { name: '💻 WPS SDK 接入', role: 'frontend', start: 8, end: 8.5, progress: 0, desc: 'JSSDK 加载、config、初始化、错误处理' },
+  { name: '💻 保存逻辑开发', role: 'frontend', start: 8.5, end: 9.5, progress: 0, desc: '解析章节、计算进度、更新 localStorage' },
+  { name: '💻 资源插入/变量管理', role: 'frontend', start: 9.5, end: 10, progress: 0, desc: '侧边栏资源插入、范本变量管理' },
+  { name: '⚙️ WPS 回调接口全套', role: 'backend', start: 8, end: 9, progress: 0, desc: 'users/files/permission/download/upload/complete' },
+  { name: '⚙️ 导出/初始化接口', role: 'backend', start: 9, end: 9.5, progress: 0, desc: 'export-html、weboffice-init' },
+  { name: '🧪 编辑器端到端测试', role: 'test', start: 9, end: 10, progress: 0, desc: '保存-下载-再打开一致性验证' },
+  { name: '🔗 WPS 编辑器全链路联调', role: 'integration', start: 9, end: 10, progress: 0, desc: 'WPS回调 + 保存 + 导出 + 资源插入前后端联调' },
+  { name: '🔒 安全方案评审', role: 'review', start: 8, end: 8, progress: 0, desc: 'WPS 回调安全方案（第1天）' },
+  { name: '🔒 保存一致性评审', role: 'review', start: 9.5, end: 9.5, progress: 0, desc: '10 次保存后结构一致性验证（第8天）' },
+
+  { group: 'M5 验收与优化（W11-W12）', type: 'group' },
+  { name: '💻 性能优化', role: 'frontend', start: 11, end: 12, progress: 0, desc: '代码分割、懒加载、首屏优化' },
+  { name: '⚙️ API 性能优化', role: 'backend', start: 11, end: 12, progress: 0, desc: '接口响应时间优化、Mock→真实API迁移' },
+  { name: '🧪 全量回归/性能/兼容测试', role: 'test', start: 11, end: 12, progress: 0, desc: '回归测试 + 性能基准 + 浏览器兼容' },
+  { name: '🔗 招标流程全链路联调', role: 'integration', start: 12, end: 12, progress: 0, desc: '变量填写 + 完成度计算 + 定稿状态流转联调' },
+  { name: '🚀 部署与监控', role: 'devops', start: 11.5, end: 12, progress: 0, desc: '生产环境、CI/CD、监控告警' },
+  { name: '🔒 全量 Code Review', role: 'review', start: 11, end: 11, progress: 0, desc: '架构师全量代码 Review（第3天）' },
+  { name: '🔒 上线方案评审', role: 'review', start: 12, end: 12, progress: 0, desc: '部署步骤、回滚方案评审（第9天）' },
+];
+
+const DEFAULT_MILESTONES = [
+  { week: 1, name: 'M0 完成', desc: '需求冻结、WPS Demo、环境就绪' },
+  { week: 3, name: 'M1 完成', desc: '品类管理、数据看板、公共组件' },
+  { week: 5, name: 'M2 完成', desc: '四资源模块、范本变量、编辑器' },
+  { week: 7, name: 'M3 完成', desc: '范本新建/复制/导入/编辑属性' },
+  { week: 10, name: 'M4 完成', desc: 'WPS 在线编辑、保存、下载' },
+  { week: 12, name: '🎉 上线', desc: '验收通过、生产部署' },
+];
+let milestones = [];
+
+const roleNames = {
+  frontend: '前端开发',
+  backend: '后端开发',
+  test: '测试工程师',
+  arch: '架构师',
+  devops: '运维/DevOps',
+  review: '技术评审',
+  integration: '前后端联调',
+  milestone: '里程碑',
+};
+
+let tasks = [];
+let editingIndex = -1;
+let editingMilestoneIndex = -1;
+const MAX_HISTORY = 30;
+let history = [];
+let historyIndex = -1;
+let currentVersion = '默认版本';
+
+function pushHistory() {
+  // 如果当前不在历史末尾，截断后面的
+  if (historyIndex < history.length - 1) {
+    history = history.slice(0, historyIndex + 1);
+  }
+  history.push(JSON.parse(JSON.stringify(tasks)));
+  if (history.length > MAX_HISTORY) {
+    history.shift();
+  } else {
+    historyIndex++;
+  }
+  updateUndoButton();
+}
+
+function undo() {
+  if (historyIndex <= 0) {
+    showToast('没有可撤销的操作');
+    return;
+  }
+  historyIndex--;
+  tasks = JSON.parse(JSON.stringify(history[historyIndex]));
+  saveTasks();
+  render();
+  updateUndoButton();
+  showToast('↶ 已撤销');
+}
+
+function updateUndoButton() {
+  const btn = document.getElementById('undoBtn');
+  if (btn) {
+    btn.disabled = historyIndex <= 0;
+    btn.style.opacity = historyIndex <= 0 ? '0.4' : '1';
+  }
+}
+
+function loadTasks() {
+  // 读取版本列表
+  const versionListSaved = localStorage.getItem('gantt-version-list');
+  let versionList = ['默认版本'];
+  if (versionListSaved) {
+    try { versionList = JSON.parse(versionListSaved); } catch(e) {}
+  } else {
+    localStorage.setItem('gantt-version-list', JSON.stringify(versionList));
+  }
+
+  // 读取当前版本
+  const currentSaved = localStorage.getItem('gantt-current-version');
+  currentVersion = currentSaved || '默认版本';
+  if (!versionList.includes(currentVersion)) {
+    currentVersion = versionList[0];
+  }
+
+  // 加载当前版本数据
+  const dataKey = 'gantt-version-' + currentVersion;
+  const saved = localStorage.getItem(dataKey);
+  if (saved) {
+    try {
+      const data = JSON.parse(saved);
+      tasks = data.tasks || JSON.parse(JSON.stringify(DEFAULT_TASKS));
+      milestones = data.milestones || JSON.parse(JSON.stringify(DEFAULT_MILESTONES));
+    } catch (e) {
+      tasks = JSON.parse(JSON.stringify(DEFAULT_TASKS));
+      milestones = JSON.parse(JSON.stringify(DEFAULT_MILESTONES));
+    }
+  } else {
+    tasks = JSON.parse(JSON.stringify(DEFAULT_TASKS));
+    milestones = JSON.parse(JSON.stringify(DEFAULT_MILESTONES));
+    localStorage.setItem(dataKey, JSON.stringify({ tasks, milestones }));
+  }
+
+  // 初始化历史
+  history = [JSON.parse(JSON.stringify(tasks))];
+  historyIndex = 0;
+  updateVersionSelect();
+}
+
+function saveTasks() {
+  const dataKey = 'gantt-version-' + currentVersion;
+  localStorage.setItem(dataKey, JSON.stringify({ tasks, milestones }));
+  showToast('✓ 已自动保存');
+}
+
+function render() {
+  // 动态计算总周数
+  const taskWeeks = tasks.filter(t => !t.type).map(t => Math.ceil(t.end || 1));
+  const msWeeks = milestones.map(m => m.week || 1);
+  WEEKS = Math.max(...taskWeeks, ...msWeeks, 1);
+
+  const headerEl = document.getElementById('timelineHeader');
+  headerEl.innerHTML = '';
+
+  // 同步更新 timeline-header 宽度
+  const timelineHeaderEl = document.getElementById('timelineHeader');
+  if (timelineHeaderEl) {
+    timelineHeaderEl.style.width = (WEEKS * WEEK_WIDTH) + 'px';
+    // 同步调整 task-col 宽度（保持一致）
+    document.querySelectorAll('.task-col, .task-name').forEach(el => {
+      el.style.width = '220px';
+      el.style.minWidth = '220px';
+    });
+  }
+  for (let i = 1; i <= WEEKS; i++) {
+    const cell = document.createElement('div');
+    cell.className = 'week-cell' + (milestones.find(m => m.week === i) ? ' milestone-week' : '');
+    cell.style.width = WEEK_WIDTH + 'px';
+    cell.textContent = 'W' + i;
+    headerEl.appendChild(cell);
+  }
+
+  const bodyEl = document.getElementById('ganttBody');
+  bodyEl.innerHTML = '';
+
+  tasks.forEach((task, idx) => {
+    const row = document.createElement('div');
+    row.className = 'gantt-row' + (task.type === 'group' ? ' group-header' : '');
+
+    const taskName = document.createElement('div');
+    taskName.className = 'task-name';
+    if (task.type === 'group') {
+      taskName.textContent = task.group;
+      const addBtn = document.createElement('span');
+      addBtn.innerHTML = '<button class="add-btn" title="添加任务">+</button>';
+      addBtn.querySelector('button').onclick = (e) => { e.stopPropagation(); addTaskAfter(idx); };
+      const actions = document.createElement('span');
+      actions.className = 'task-actions';
+      actions.appendChild(addBtn);
+      taskName.appendChild(actions);
+    } else {
+      const tag = document.createElement('span');
+      tag.className = 'tag';
+      const colors = { frontend:'#3370ff', backend:'#00b96b', test:'#f5a623', arch:'#7b67ee', devops:'#14c9c9', review:'#8f959e', integration:'#a855f7' };
+      tag.style.background = colors[task.role] || '#ccc';
+      const text = document.createElement('span');
+      text.className = 'task-text';
+      text.textContent = task.name;
+      taskName.appendChild(tag);
+      taskName.appendChild(text);
+
+      const actions = document.createElement('span');
+      actions.className = 'task-actions';
+      actions.innerHTML = '<button class="add-btn" title="添加任务">+</button>';
+      actions.querySelector('button').onclick = (e) => { e.stopPropagation(); addTaskAfter(idx); };
+      taskName.appendChild(actions);
+    }
+    row.appendChild(taskName);
+
+    const timeline = document.createElement('div');
+    timeline.className = 'timeline-body';
+
+    for (let i = 1; i <= WEEKS; i++) {
+      const cell = document.createElement('div');
+      cell.className = 'timeline-cell';
+      cell.style.width = WEEK_WIDTH + 'px';
+      timeline.appendChild(cell);
+    }
+
+    if (task.type !== 'group') {
+      const bar = document.createElement('div');
+      bar.className = 'bar bar-' + task.role;
+      const left = (task.start - 1) * WEEK_WIDTH;
+      const width = Math.max((task.end - task.start) * WEEK_WIDTH, 46);
+      bar.style.left = left + 'px';
+      bar.style.width = width + 'px';
+      bar.textContent = (task.progress || 0) + '%';
+
+      if (task.progress > 0 && task.progress < 100) {
+        const progress = document.createElement('div');
+        progress.className = 'progress-bar';
+        progress.style.width = task.progress + '%';
+        bar.appendChild(progress);
+      }
+
+      const delBtn = document.createElement('span');
+      delBtn.className = 'bar-delete';
+      delBtn.textContent = '×';
+      delBtn.title = '删除';
+      delBtn.onclick = (e) => { e.stopPropagation(); deleteTask(idx); };
+      bar.appendChild(delBtn);
+
+      bar.addEventListener('mouseenter', (e) => showTooltip(e, task));
+      bar.addEventListener('mouseleave', hideTooltip);
+      bar.addEventListener('mousemove', moveTooltip);
+      bar.addEventListener('dblclick', () => openEdit(idx));
+      timeline.appendChild(bar);
+    }
+
+    row.appendChild(timeline);
+    bodyEl.appendChild(row);
+  });
+
+  // Milestones
+  milestones.forEach((m, midx) => {
+    const row = document.createElement('div');
+    row.className = 'gantt-row';
+    row.style.height = '28px';
+    row.style.cursor = 'pointer';
+    row.addEventListener('dblclick', () => openMilestoneEdit(midx));
+
+    const taskName = document.createElement('div');
+    taskName.className = 'task-name';
+    taskName.style.fontSize = '12px';
+    taskName.style.color = '#d92b2b';
+    taskName.style.fontWeight = '600';
+    taskName.textContent = '🚩 ' + m.name;
+    row.appendChild(taskName);
+
+    const timeline = document.createElement('div');
+    timeline.className = 'timeline-body';
+    for (let i = 1; i <= WEEKS; i++) {
+      const cell = document.createElement('div');
+      cell.className = 'timeline-cell';
+      cell.style.width = WEEK_WIDTH + 'px';
+      timeline.appendChild(cell);
+    }
+
+    const diamond = document.createElement('div');
+    diamond.className = 'milestone-diamond';
+    diamond.style.left = ((m.week - 1) * WEEK_WIDTH + WEEK_WIDTH/2 - 6) + 'px';
+    timeline.appendChild(diamond);
+
+    const label = document.createElement('div');
+    label.className = 'milestone-label';
+    label.style.left = ((m.week - 1) * WEEK_WIDTH + WEEK_WIDTH/2 + 10) + 'px';
+    label.textContent = m.desc;
+    timeline.appendChild(label);
+
+    row.appendChild(timeline);
+    bodyEl.appendChild(row);
+  });
+}
+
+// Tooltip
+const tooltip = document.getElementById('tooltip');
+function showTooltip(e, task) {
+  tooltip.innerHTML = `
+    <div class="tooltip-title">${task.name}</div>
+    <div class="tooltip-row">角色：${roleNames[task.role] || task.role}</div>
+    <div class="tooltip-row">周期：第 ${task.start} 周 ~ 第 ${Math.ceil(task.end)} 周</div>
+    <div class="tooltip-row">进度：${task.progress}%</div>
+    <div class="tooltip-row" style="margin-top:4px;color:#fff">${task.desc}</div>
+  `;
+  tooltip.classList.add('show');
+  moveTooltip(e);
+}
+function hideTooltip() { tooltip.classList.remove('show'); }
+function moveTooltip(e) {
+  tooltip.style.left = (e.clientX + 12) + 'px';
+  tooltip.style.top = (e.clientY + 12) + 'px';
+}
+
+// Edit Modal
+function openEdit(idx) {
+  editingIndex = idx;
+  editingMilestoneIndex = -1;
+  const task = tasks[idx];
+  document.getElementById('editModalTitle').textContent = '编辑任务';
+  document.getElementById('editName').value = task.name || '';
+  document.getElementById('editRole').value = task.role || 'frontend';
+  document.getElementById('editStart').value = task.start || 1;
+  document.getElementById('editEnd').value = task.end || 1;
+  document.getElementById('editProgress').value = task.progress || 0;
+  document.getElementById('editDesc').value = task.desc || '';
+  document.getElementById('editNote').value = task.note || '';
+  document.getElementById('taskFieldRole').style.display = '';
+  document.getElementById('taskFieldStartEnd').style.display = '';
+  document.getElementById('taskFieldProgress').style.display = '';
+  document.getElementById('milestoneFieldWeek').style.display = 'none';
+  document.getElementById('editModal').classList.add('show');
+}
+
+function openMilestoneEdit(idx) {
+  editingMilestoneIndex = idx;
+  editingIndex = -1;
+  const m = milestones[idx];
+  document.getElementById('editModalTitle').textContent = '编辑里程碑';
+  document.getElementById('editName').value = m.name || '';
+  document.getElementById('editWeek').value = m.week || 1;
+  document.getElementById('editDesc').value = m.desc || '';
+  document.getElementById('editNote').value = m.note || '';
+  document.getElementById('taskFieldRole').style.display = 'none';
+  document.getElementById('taskFieldStartEnd').style.display = 'none';
+  document.getElementById('taskFieldProgress').style.display = 'none';
+  document.getElementById('milestoneFieldWeek').style.display = '';
+  document.getElementById('editModal').classList.add('show');
+}
+
+function closeModal() {
+  document.getElementById('editModal').classList.remove('show');
+  editingIndex = -1;
+  editingMilestoneIndex = -1;
+}
+
+function saveTask() {
+  if (editingMilestoneIndex >= 0) {
+    pushHistory();
+    const m = milestones[editingMilestoneIndex];
+    m.name = document.getElementById('editName').value;
+    m.week = parseInt(document.getElementById('editWeek').value) || 1;
+    m.desc = document.getElementById('editDesc').value;
+    m.note = document.getElementById('editNote').value;
+    saveTasks();
+    render();
+    closeModal();
+    return;
+  }
+  if (editingIndex < 0) return;
+  pushHistory();
+  const task = tasks[editingIndex];
+  task.name = document.getElementById('editName').value;
+  task.role = document.getElementById('editRole').value;
+  task.start = parseFloat(document.getElementById('editStart').value) || 1;
+  task.end = parseFloat(document.getElementById('editEnd').value) || 1;
+  task.progress = parseInt(document.getElementById('editProgress').value) || 0;
+  task.desc = document.getElementById('editDesc').value;
+  task.note = document.getElementById('editNote').value;
+  saveTasks();
+  render();
+  closeModal();
+}
+
+function deleteCurrentTask() {
+  if (editingMilestoneIndex >= 0) {
+    if (!confirm('确定删除该里程碑？')) return;
+    pushHistory();
+    milestones.splice(editingMilestoneIndex, 1);
+    saveTasks();
+    render();
+    closeModal();
+    return;
+  }
+  if (editingIndex < 0) return;
+  if (!confirm('确定删除该任务？')) return;
+  deleteTask(editingIndex);
+  closeModal();
+}
+
+function deleteTask(idx) {
+  pushHistory();
+  tasks.splice(idx, 1);
+  saveTasks();
+  render();
+}
+
+function addTaskAfter(idx) {
+  pushHistory();
+  const group = tasks[idx].type === 'group' ? tasks[idx].group : findGroupForIndex(idx);
+  const newTask = {
+    name: '🆕 新任务',
+    role: 'frontend',
+    start: 1,
+    end: 2,
+    progress: 0,
+    desc: '请编辑任务详情'
+  };
+  // Insert after the group or task
+  tasks.splice(idx + 1, 0, newTask);
+  saveTasks();
+  render();
+  openEdit(idx + 1);
+}
+
+function findGroupForIndex(idx) {
+  for (let i = idx; i >= 0; i--) {
+    if (tasks[i].type === 'group') return tasks[i].group;
+  }
+  return '';
+}
+
+// Export / Import
+function exportJSON() {
+  const blob = new Blob([JSON.stringify({ tasks, milestones }, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'project-gantt-' + currentVersion + '.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('✓ JSON 已导出');
+}
+
+function importJSON() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json';
+  input.onchange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        pushHistory();
+        const data = JSON.parse(ev.target.result);
+        if (Array.isArray(data)) {
+          // 兼容旧格式（纯任务数组）
+          tasks = data;
+        } else if (data.tasks) {
+          tasks = data.tasks;
+          if (data.milestones) milestones = data.milestones;
+        }
+        saveTasks();
+        render();
+        showToast('✓ JSON 已导入');
+      } catch (err) {
+        alert('导入失败：文件格式错误');
+      }
+    };
+    reader.readAsText(file);
+  };
+  input.click();
+}
+
+function exportCSV() {
+  const lines = ['name,role,start,end,progress,desc'];
+  tasks.forEach(t => {
+    if (t.type === 'group') {
+      lines.push(`"${t.group}",group,,,,`);
+    } else {
+      lines.push(`"${t.name}","${t.role}",${t.start},${t.end},${t.progress},"${t.desc}"`);
+    }
+  });
+  const blob = new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'project-gantt-data.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('✓ CSV 已导出');
+}
+
+function switchVersion(name) {
+  if (name === currentVersion) return;
+  // 先保存当前版本
+  const oldKey = 'gantt-version-' + currentVersion;
+  localStorage.setItem(oldKey, JSON.stringify({ tasks, milestones }));
+
+  currentVersion = name;
+  localStorage.setItem('gantt-current-version', currentVersion);
+
+  const dataKey = 'gantt-version-' + currentVersion;
+  const saved = localStorage.getItem(dataKey);
+  if (saved) {
+    try {
+      const data = JSON.parse(saved);
+      tasks = data.tasks || JSON.parse(JSON.stringify(DEFAULT_TASKS));
+      milestones = data.milestones || JSON.parse(JSON.stringify(DEFAULT_MILESTONES));
+    } catch(e) {
+      tasks = JSON.parse(JSON.stringify(DEFAULT_TASKS));
+      milestones = JSON.parse(JSON.stringify(DEFAULT_MILESTONES));
+    }
+  } else {
+    tasks = JSON.parse(JSON.stringify(DEFAULT_TASKS));
+    milestones = JSON.parse(JSON.stringify(DEFAULT_MILESTONES));
+    localStorage.setItem(dataKey, JSON.stringify({ tasks, milestones }));
+  }
+
+  history = [JSON.parse(JSON.stringify(tasks))];
+  historyIndex = 0;
+  updateUndoButton();
+  updateVersionSelect();
+  render();
+  showToast('✓ 已切换到「' + currentVersion + '」');
+}
+
+function addNewVersion() {
+  const name = prompt('请输入新版本名称（如 V2、备选方案等）：');
+  if (!name || !name.trim()) return;
+  const trimmed = name.trim();
+
+  const versionListSaved = localStorage.getItem('gantt-version-list');
+  let versionList = ['默认版本'];
+  if (versionListSaved) {
+    try { versionList = JSON.parse(versionListSaved); } catch(e) {}
+  }
+
+  if (versionList.includes(trimmed)) {
+    alert('版本名称已存在，请换一个名称');
+    return;
+  }
+
+  versionList.push(trimmed);
+  localStorage.setItem('gantt-version-list', JSON.stringify(versionList));
+
+  // 新版本复制当前数据
+  const dataKey = 'gantt-version-' + trimmed;
+  localStorage.setItem(dataKey, JSON.stringify({ tasks, milestones }));
+
+  switchVersion(trimmed);
+  showToast('✓ 已创建新版本「' + trimmed + '」');
+}
+
+function updateVersionSelect() {
+  const select = document.getElementById('versionSelect');
+  if (!select) return;
+
+  const versionListSaved = localStorage.getItem('gantt-version-list');
+  let versionList = ['默认版本'];
+  if (versionListSaved) {
+    try { versionList = JSON.parse(versionListSaved); } catch(e) {}
+  }
+
+  select.innerHTML = '';
+  versionList.forEach(v => {
+    const option = document.createElement('option');
+    option.value = v;
+    option.textContent = v;
+    if (v === currentVersion) option.selected = true;
+    select.appendChild(option);
+  });
+}
+
+function showToast(msg) {
+  const toast = document.getElementById('toast');
+  toast.textContent = msg;
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 2000);
+}
+
+// Keyboard shortcut
+ document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+    e.preventDefault();
+    undo();
+  }
+});
+
+// Init
+loadTasks();
+render();
+updateUndoButton();
+</script>
+
+</body>
+</html>

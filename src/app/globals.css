@@ -1,0 +1,937 @@
+@import "tailwindcss";
+
+/* 显式声明扫描范围，避免个别环境下自动探测遗漏导致 Utility 未生成、界面像「旧样式」 */
+@source "../**/*.{js,ts,jsx,tsx,mdx}";
+
+:root {
+  --background: #F5F6F7;
+  --foreground: #1F2329;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+/* ── 企业后台全局基础样式（飞书/Arco Design 规范） ── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  background: #F5F6F7;
+  color: #1F2329;
+  font-family:
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    'PingFang SC',
+    'Hiragino Sans GB',
+    'Microsoft YaHei',
+    sans-serif;
+  font-size: 14px;
+  line-height: 1.5714;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/*
+ * 业务弹窗宽度（勿用 width:100%，否则在 ModalOverlay 内会随内容塌缩变窄）
+ * - 默认：多字段表单，视口内最大 800px
+ * - --compact：招采分类目录等，最大 480px
+ */
+.saas-modal-panel {
+  box-sizing: border-box;
+  width: 56rem !important;
+  max-width: calc(100vw - 2rem) !important;
+  margin-inline: auto;
+  flex-shrink: 0;
+}
+
+.saas-modal-panel--compact {
+  width: min(30rem, calc(100vw - 2rem));
+}
+
+.saas-modal-panel-lg {
+  width: min(62rem, calc(100vw - 2rem));
+}
+
+.saas-modal-panel-xl {
+  width: min(72rem, calc(100vw - 2rem));
+}
+
+/* ── 全局 Table Reset：确保非编辑器区域表格无黑边 ── */
+/* 只对不在 .ProseMirror 内的 table 做 reset */
+table:not(.ProseMirror table) {
+  border-collapse: collapse;
+  border-spacing: 0;
+}
+
+/* 防止原生 table 黑边；不重置 padding/字号，避免覆盖业务表格 Tailwind 样式 */
+:where(body) table:not(.ProseMirror *):not(.resource-rich-preview *) th,
+:where(body) table:not(.ProseMirror *):not(.resource-rich-preview *) td {
+  border: none;
+}
+
+/* 系统列表表格 saas-table（与 src/lib/systemUi.ts / Tailwind 规范一致，仅作兜底） */
+table.saas-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #0f172a;
+}
+
+table.saas-table thead th {
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: #64748b;
+  text-align: left;
+  vertical-align: middle;
+  background-color: #f8fafc;
+  border: none;
+}
+
+table.saas-table tbody td {
+  padding: 12px 16px;
+  font-size: 14px;
+  vertical-align: middle;
+  border: none;
+}
+
+/* ── 原生表单控件 Reset ── */
+select,
+input,
+textarea,
+button {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+input:not([type='checkbox']):not([type='radio']):not([type='hidden']):not([type='file']):not([type='image']):not([type='button']):not([type='submit']):not([type='reset']),
+textarea {
+  appearance: auto;
+  background-color: #fff;
+  border: 1px solid #dee0e3;
+  border-radius: 6px;
+  color: #1f2329;
+  outline: none;
+}
+
+/* FormSelect：仅保留右侧 Lucide 图标，禁止原生/背景双箭头 */
+@layer base {
+  select.no-saas-select {
+    appearance: none !important;
+    -webkit-appearance: none !important;
+    -moz-appearance: none !important;
+    background-image: none !important;
+  }
+
+  select.no-saas-select::-ms-expand {
+    display: none;
+  }
+
+  /* 未迁移的原生 select 兜底（无 FormSelect 时） */
+  select:not(.no-saas-select) {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-color: #fff;
+    border: 1px solid #dee0e3;
+    border-radius: 6px;
+    color: #1f2329;
+    outline: none;
+    background-repeat: no-repeat;
+    background-position: right 0.625rem center;
+    background-size: 1rem;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    padding-right: 2rem !important;
+    box-sizing: border-box;
+  }
+
+  select.saas-select-compact:not(.no-saas-select) {
+    padding-right: 1.375rem !important;
+    background-position: right 0.375rem center;
+    background-size: 0.75rem;
+  }
+}
+
+select:focus,
+input:not([type='checkbox']):not([type='radio']):not([type='hidden']):not([type='file']):not([type='image']):not([type='button']):not([type='submit']):not([type='reset']):focus,
+textarea:focus {
+  border-color: #3370ff;
+  box-shadow: 0 0 0 2px rgba(51, 112, 255, 0.15);
+}
+
+/* 避免标题标签在 Utility 未命中时回退为浏览器默认超大字号 */
+aside h1,
+aside h2,
+main > header h1,
+main > header h2,
+.category-page h1,
+.category-page h2,
+.category-page h3 {
+  font-size: inherit;
+  font-weight: inherit;
+  margin: 0;
+  line-height: inherit;
+}
+
+/* 招采分类页：与 MainLayout 一致的浅边框，避免 Tailwind 未生成任意色时回退黑边 */
+.category-page select,
+.category-page input:not([type='checkbox']):not([type='radio']):not([type='button']):not([type='submit']):not([type='reset']),
+.category-page textarea {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+
+.category-page select:focus,
+.category-page input:not([type='checkbox']):not([type='radio']):not([type='button']):not([type='submit']):not([type='reset']):focus,
+.category-page textarea:focus {
+  border-color: #3370ff;
+  box-shadow: 0 0 0 2px rgba(51, 112, 255, 0.15);
+}
+
+/* ── 滚动条美化（WebKit） ── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #DEE0E3;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #C2C7CE;
+}
+
+/*
+ * 错误页插画尺寸兜底（SystemErrorPage）：全局生效，不依赖 Tailwind 是否生成任意类；
+ * 避免 svg 在个别环境下被当成「替换元素默认尺寸」放大到接近整屏。
+ */
+[data-system-error-art] {
+  box-sizing: border-box;
+  width: 72px !important;
+  height: 72px !important;
+  max-width: 72px !important;
+  max-height: 72px !important;
+  flex-shrink: 0 !important;
+  overflow: hidden !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+[data-system-error-art] > svg {
+  width: 48px !important;
+  height: 48px !important;
+  max-width: 48px !important;
+  max-height: 48px !important;
+  display: block !important;
+  flex-shrink: 0 !important;
+}
+
+/* Tiptap 富文本编辑器样式 — 中国官方标书文档规范 */
+.ProseMirror {
+  outline: none;
+  font-family: "SimSun", "宋体", "Noto Serif CJK SC", "Source Han Serif SC", serif;
+  font-size: 16px; /* 小四 ≈ 12pt */
+  line-height: 29.3px; /* 固定值 22 磅 */
+}
+
+/* 一级标题：黑体、二号(22pt≈29.3px)、加粗、居中 */
+.ProseMirror h1 {
+  font-family: "SimHei", "黑体", "Noto Sans CJK SC", "Source Han Sans SC", sans-serif;
+  font-size: 29.3px;
+  font-weight: 700;
+  text-align: center;
+  margin-top: 22px; /* 段前 1 行 ≈ 22磅 */
+  margin-bottom: 22px; /* 段后 1 行 */
+  line-height: 29.3px; /* 单倍行距对应固定值22磅 */
+}
+
+/* 二级标题：黑体、小三号(15pt≈20px)、加粗、左对齐 */
+.ProseMirror h2 {
+  font-family: "SimHei", "黑体", "Noto Sans CJK SC", "Source Han Sans SC", sans-serif;
+  font-size: 20px;
+  font-weight: 700;
+  text-align: left;
+  margin-top: 11px; /* 段前 0.5 行 */
+  margin-bottom: 11px; /* 段后 0.5 行 */
+  line-height: 29.3px;
+}
+
+/* 三级标题：黑体、四号(14pt≈18.7px)、加粗、左对齐 */
+.ProseMirror h3 {
+  font-family: "SimHei", "黑体", "Noto Sans CJK SC", "Source Han Sans SC", sans-serif;
+  font-size: 18.7px;
+  font-weight: 700;
+  text-align: left;
+  margin-top: 6.6px; /* 段前 0.3 行 */
+  margin-bottom: 6.6px; /* 段后 0.3 行 */
+  line-height: 29.3px;
+}
+
+/* 四级及以下标题：黑体、小四(12pt≈16px)、加粗、左对齐 */
+.ProseMirror h4,
+.ProseMirror h5,
+.ProseMirror h6 {
+  font-family: "SimHei", "黑体", "Noto Sans CJK SC", "Source Han Sans SC", sans-serif;
+  font-size: 16px;
+  font-weight: 700;
+  text-align: left;
+  margin-top: 6.6px;
+  margin-bottom: 6.6px;
+  line-height: 29.3px;
+}
+
+/* 正文：宋体、小四、常规 */
+.ProseMirror p {
+  font-family: "SimSun", "宋体", "Noto Serif CJK SC", "Source Han Serif SC", serif;
+  font-size: 16px;
+  font-weight: 400;
+  text-align: justify; /* 两端对齐 */
+  line-height: 29.3px; /* 固定值 22 磅 */
+  text-indent: 2em; /* 首行缩进 2 字符 */
+  margin-top: 0;
+  margin-bottom: 0;
+  padding-top: 3.7px; /* 段前 0.5 行的一半视觉补偿 */
+  padding-bottom: 3.7px;
+}
+
+/* 封面/使用说明等前置标题段落 */
+.ProseMirror p.cover-text {
+  text-align: center !important;
+  text-indent: 0 !important;
+  font-family: "SimHei", "黑体", "Noto Sans CJK SC", "Source Han Sans SC", sans-serif;
+  font-weight: 700;
+}
+
+/* 封面招标编号 */
+.ProseMirror p.cover-bid-no {
+  text-align: right !important;
+  text-indent: 0 !important;
+  font-family: "SimSun", "宋体", serif;
+  font-size: 16px;
+  margin-bottom: 22px;
+}
+
+/* 使用说明标题 */
+.ProseMirror p.usage-title {
+  text-align: center !important;
+  text-indent: 0 !important;
+}
+
+/* 封面信息表格（用 div 模拟，避免与正文表格样式冲突） */
+.ProseMirror .cover-info-box {
+  width: 420px;
+  margin: 80px auto 20px;
+  border: 1px dashed #333;
+}
+.ProseMirror .cover-info-row {
+  display: flex;
+  border-bottom: 1px dashed #333;
+}
+.ProseMirror .cover-info-row:last-child {
+  border-bottom: none;
+}
+.ProseMirror .cover-info-label,
+.ProseMirror .cover-info-value {
+  padding: 8px 0;
+  font-size: 16px;
+  text-align: center;
+  align-items: center;
+  justify-content: center;
+  display: flex;
+}
+.ProseMirror .cover-info-label {
+  width: 140px;
+  border-right: 1px dashed #333;
+  font-family: "SimHei", "黑体", sans-serif;
+  font-weight: 700;
+}
+.ProseMirror .cover-info-value {
+  flex: 1;
+  font-family: "SimSun", "宋体", serif;
+}
+
+/* 目录标题 */
+.ProseMirror p.toc-heading {
+  text-align: center !important;
+  text-indent: 0 !important;
+  font-family: "SimHei", "黑体", "Noto Sans CJK SC", "Source Han Sans SC", sans-serif;
+  font-size: 20px;
+  font-weight: 700;
+  margin-top: 11px;
+  margin-bottom: 11px;
+}
+
+/* 目录条目 */
+.ProseMirror p.toc-entry {
+  text-indent: 0 !important;
+  margin: 2px 0 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  display: flex;
+  align-items: baseline;
+  text-align: left;
+}
+
+.ProseMirror p.toc-entry a {
+  display: contents;
+  color: inherit;
+  text-decoration: none;
+}
+
+.ProseMirror p.toc-entry .toc-title {
+  white-space: nowrap;
+}
+
+.ProseMirror p.toc-entry .toc-dots {
+  flex: 1;
+  border-bottom: 1px dotted #999;
+  margin: 0 8px 3px;
+  min-width: 20px;
+}
+
+.ProseMirror p.toc-entry .toc-page {
+  white-space: nowrap;
+  margin-left: 8px;
+}
+
+/* 段落间真实段间距由相邻 margin 实现，这里用段前后的半个行距 */
+.ProseMirror p + p {
+  margin-top: 0;
+}
+
+/* 空段落占位缩小，避免封面等大段空白 */
+.ProseMirror p:has(> br:only-child) {
+  line-height: 1;
+  min-height: 1em;
+}
+
+/* 关键条款、强调内容：宋体、小四、加粗 */
+.ProseMirror strong,
+.ProseMirror b {
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: 700;
+}
+
+/* 公式/编号：Times New Roman、小四 */
+.ProseMirror code,
+.ProseMirror var,
+.ProseMirror .formula {
+  font-family: "Times New Roman", Times, serif;
+  font-size: 16px;
+}
+
+/* 有序/无序列表：左对齐、悬挂缩进 0.74 厘米 */
+.ProseMirror ul,
+.ProseMirror ol {
+  margin-top: 0;
+  margin-bottom: 0;
+  padding-left: 0;
+  list-style-position: outside;
+  margin-left: 0.74cm; /* 悬挂缩进整体偏移 */
+}
+
+.ProseMirror ul {
+  list-style-type: disc;
+}
+
+.ProseMirror ol {
+  list-style-type: decimal;
+}
+
+.ProseMirror li {
+  font-family: "SimSun", "宋体", "Noto Serif CJK SC", "Source Han Serif SC", serif;
+  font-size: 16px;
+  text-align: justify;
+  line-height: 26.6px; /* 条款项固定值 20 磅 */
+  text-indent: -0.74cm; /* 悬挂缩进：标记左凸 */
+  padding-left: 0.74cm;
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.ProseMirror li > p {
+  text-indent: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  margin-top: 0;
+  margin-bottom: 0;
+  line-height: 26.6px;
+}
+
+/* 任务清单覆盖 */
+.ProseMirror ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0;
+  margin-left: 0;
+}
+.ProseMirror ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  text-indent: 0;
+  padding-left: 0;
+  margin-left: 0.74cm;
+}
+.ProseMirror ul[data-type="taskList"] li > label {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.ProseMirror ul[data-type="taskList"] li > div {
+  flex: 1;
+}
+
+/* 表格 — 仅对编辑器内新建的表格应用默认边框样式，导入的表格保留原样 */
+.ProseMirror table:not(.cover-table):not([data-imported="true"]) {
+  border-collapse: collapse !important;
+  table-layout: auto !important;
+  width: 100% !important;
+  margin: 0.5rem 0 !important;
+  overflow: hidden !important;
+  border: 2px solid #000000 !important; /* 外框线 1.5 磅 ≈ 2px */
+}
+
+.ProseMirror table:not(.cover-table):not([data-imported="true"]) * {
+  border-color: #000000 !important;
+}
+
+.ProseMirror :where(table:not(.cover-table):not([data-imported="true"])) td,
+.ProseMirror :where(table:not(.cover-table):not([data-imported="true"])) th {
+  min-width: 1em !important;
+  border: 1px solid #000000 !important; /* 内框线 0.5 磅 ≈ 1px */
+  border-top: 1px solid #000000 !important;
+  border-right: 1px solid #000000 !important;
+  border-bottom: 1px solid #000000 !important;
+  border-left: 1px solid #000000 !important;
+  padding: 0.5mm 0.6mm !important; /* 上下 0.5mm、左右 0.6mm */
+  vertical-align: middle !important;
+  text-align: center !important;
+  box-sizing: border-box !important;
+  position: relative !important;
+  font-family: "SimSun", "宋体", "Noto Serif CJK SC", "Source Han Serif SC", serif !important;
+  font-size: 14px !important; /* 五号 ≈ 10.5pt */
+  line-height: 24px !important; /* 固定值 18 磅 */
+  background-color: #ffffff !important;
+}
+
+.ProseMirror :where(table:not(.cover-table):not([data-imported="true"])) th {
+  font-family: "SimHei", "黑体", "Noto Sans CJK SC", "Source Han Sans SC", sans-serif !important;
+  font-weight: 700 !important;
+  text-align: center !important;
+  background-color: #ffffff !important; /* 无填充 */
+  border-bottom: 1.5px solid #000000 !important; /* 表头下框线 1.0 磅加粗 */
+}
+
+.ProseMirror :where(table:not(.cover-table):not([data-imported="true"])) tr:last-child td,
+.ProseMirror :where(table:not(.cover-table):not([data-imported="true"])) tr:last-child th {
+  border-bottom: 1px solid #000000 !important;
+}
+
+/* 清除 mammoth 可能生成的行内 border 属性（仅新建表格） */
+.ProseMirror table[border]:not(.cover-table):not([data-imported="true"]) {
+  border: none !important;
+}
+.ProseMirror table.cover-table th {
+  font-family: "SimHei", "黑体", "Noto Sans CJK SC", "Source Han Sans SC", sans-serif !important;
+  font-weight: 700 !important;
+}
+
+/* 仅屏幕显示的表格边框（编辑参考线，打印/PDF时自动隐藏） */
+.ProseMirror table.screen-only-border,
+.docx-preview table.screen-only-border {
+  border: 1px dashed #333;
+}
+.ProseMirror table.screen-only-border td,
+.ProseMirror table.screen-only-border th,
+.docx-preview table.screen-only-border td,
+.docx-preview table.screen-only-border th {
+  border: 1px dashed #333;
+}
+
+@media print {
+  .ProseMirror table.screen-only-border,
+  .ProseMirror table.screen-only-border td,
+  .ProseMirror table.screen-only-border th,
+  .docx-preview table.screen-only-border,
+  .docx-preview table.screen-only-border td,
+  .docx-preview table.screen-only-border th {
+    border-color: transparent !important;
+  }
+}
+
+/* 保留基于 style 属性的选择器作为后备 */
+.ProseMirror table[style*="dashed"] {
+  border: 1px dashed #333 !important;
+  border-collapse: collapse !important;
+  table-layout: auto !important;
+}
+.ProseMirror table[style*="dashed"] td,
+.ProseMirror table[style*="dashed"] th {
+  border: 1px dashed #333 !important;
+  background-color: #ffffff !important;
+  font-size: 16px !important;
+  line-height: 24px !important;
+  font-family: "SimSun", "宋体", "Noto Serif CJK SC", "Source Han Serif SC", serif !important;
+}
+.ProseMirror table[style*="dashed"] th {
+  font-family: "SimHei", "黑体", "Noto Sans CJK SC", "Source Han Sans SC", sans-serif !important;
+  font-weight: 700 !important;
+}
+
+/* 金额列右对齐、备注列左对齐（通过扩展或后续class注入，这里提供基础兼容） */
+.ProseMirror td.align-right,
+.ProseMirror th.align-right {
+  text-align: right;
+}
+.ProseMirror td.align-left,
+.ProseMirror th.align-left {
+  text-align: left;
+}
+
+/* 资源管理右侧详情/预览：正文 HTML 不在 .ProseMirror 内，单独还原表格与列表（与编辑器视觉对齐） */
+.resource-rich-preview {
+  font-family: "SimSun", "宋体", "Noto Serif CJK SC", "Source Han Serif SC", serif;
+  font-size: 14px;
+  line-height: 1.65;
+  color: #334155;
+}
+
+.resource-rich-preview table {
+  border-collapse: collapse !important;
+  table-layout: auto !important;
+  width: 100% !important;
+  margin: 0.5rem 0 !important;
+  overflow: hidden !important;
+  border: 2px solid #000000 !important;
+}
+
+.resource-rich-preview table td,
+.resource-rich-preview table th {
+  min-width: 1em !important;
+  border: 1px solid #000000 !important;
+  padding: 0.5mm 0.6mm !important;
+  vertical-align: middle !important;
+  text-align: center !important;
+  box-sizing: border-box !important;
+  font-family: "SimSun", "宋体", "Noto Serif CJK SC", "Source Han Serif SC", serif !important;
+  font-size: 14px !important;
+  line-height: 24px !important;
+  background-color: #ffffff !important;
+}
+
+.resource-rich-preview table th {
+  font-family: "SimHei", "黑体", "Noto Sans CJK SC", "Source Han Sans SC", sans-serif !important;
+  font-weight: 700 !important;
+}
+
+.resource-rich-preview table p {
+  margin: 0 !important;
+  text-indent: 0 !important;
+  line-height: inherit !important;
+}
+
+.resource-rich-preview p {
+  margin: 0 0 0.5em;
+  text-align: justify;
+}
+
+.resource-rich-preview ul,
+.resource-rich-preview ol {
+  margin: 0.35em 0 0.35em 1.25rem;
+  padding-left: 0.25rem;
+}
+
+.resource-rich-preview h1,
+.resource-rich-preview h2,
+.resource-rich-preview h3 {
+  font-family: "SimHei", "黑体", "Noto Sans CJK SC", "Source Han Sans SC", sans-serif;
+  font-weight: 700;
+  margin: 0.5em 0 0.35em;
+}
+
+.resource-rich-preview td.align-right,
+.resource-rich-preview th.align-right {
+  text-align: right !important;
+}
+
+.resource-rich-preview td.align-left,
+.resource-rich-preview th.align-left {
+  text-align: left !important;
+}
+
+.ProseMirror .selectedCell:after {
+  z-index: 2;
+  position: absolute;
+  content: "";
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  background: rgba(59, 130, 246, 0.1);
+  pointer-events: none;
+}
+
+.ProseMirror .column-resize-handle {
+  position: absolute;
+  right: -2px;
+  top: 0;
+  bottom: -2px;
+  width: 4px;
+  background-color: #3b82f6;
+  pointer-events: none;
+}
+
+.ProseMirror.resize-cursor {
+  cursor: ew-resize;
+  cursor: col-resize;
+}
+
+/* 链接 */
+.ProseMirror a {
+  color: #3370ff;
+  text-decoration: underline;
+  cursor: pointer;
+  font-family: "SimSun", "宋体", "Noto Serif CJK SC", "Source Han Serif SC", serif;
+  font-size: 16px;
+}
+
+/* 图片 */
+.ProseMirror img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 0.5rem auto;
+}
+
+/* 保留 DOCX 导入时图片的内联 float 样式（如封面 logo） */
+.ProseMirror img[style*="float:left"] {
+  float: left;
+  margin: 0 12px 0 0;
+  display: inline-block;
+}
+.ProseMirror img[style*="float:right"] {
+  float: right;
+  margin: 0 0 0 12px;
+  display: inline-block;
+}
+
+/* 引用块：按规范调整为普通文本样式，仅保留左侧标识 */
+.ProseMirror blockquote {
+  font-family: "SimSun", "宋体", "Noto Serif CJK SC", "Source Han Serif SC", serif;
+  font-size: 16px;
+  text-align: justify;
+  line-height: 29.3px;
+  text-indent: 2em;
+  margin: 0.5rem 0;
+  padding-left: 1rem;
+  border-left: 3px solid #cbd5e1;
+  color: inherit;
+}
+
+/* 代码块在标书中极少使用，但保持可读性 */
+.ProseMirror pre {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 0;
+  padding: 0.75rem;
+  font-family: "Times New Roman", Consolas, monospace;
+  font-size: 16px;
+  overflow-x: auto;
+  margin: 0.5rem 0;
+  line-height: 24px;
+}
+.ProseMirror code {
+  background: #f8fafc;
+  padding: 1px 3px;
+  border-radius: 0;
+  font-size: 16px;
+  font-family: "Times New Roman", Consolas, monospace;
+}
+.ProseMirror pre code {
+  background: transparent;
+  padding: 0;
+  font-size: inherit;
+}
+
+/* 分割线 */
+.ProseMirror hr {
+  border: none;
+  border-top: 1px solid #000000;
+  margin: 1rem 0;
+}
+
+/* 引用文本块高亮 — 兼容标书格式 */
+.ProseMirror .quoted-block {
+  position: relative;
+  background-color: rgba(251, 191, 36, 0.06);
+  border-left: 3px solid #f59e0b;
+  padding: 6px 10px;
+  margin: 0;
+  border-radius: 0 4px 4px 0;
+}
+
+.ProseMirror .quoted-block::before {
+  content: "引用文本";
+  position: absolute;
+  top: -7px;
+  right: 6px;
+  font-size: 10px;
+  font-weight: 500;
+  color: #b45309;
+  background-color: #fffbeb;
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1px solid #fcd34d;
+  pointer-events: none;
+}
+
+.ProseMirror .quoted-block > *:first-child {
+  margin-top: 0;
+}
+
+.ProseMirror .quoted-block > *:last-child {
+  margin-bottom: 0;
+}
+
+/* 确保引用块内部的段落仍遵循标书正文格式 */
+.ProseMirror .quoted-block p {
+  text-indent: 2em;
+  line-height: 29.3px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.ProseMirror .quoted-block li {
+  line-height: 26.6px;
+}
+
+/* 搜索高亮 */
+mark.search-highlight {
+  background: #FFF176;
+  border-radius: 2px;
+  color: inherit;
+}
+mark.search-highlight-current {
+  background: #FF9800;
+  border-radius: 2px;
+  color: inherit;
+}
+
+/* 长文档模式：章节分隔 — 标书规范下不显示虚线分隔 */
+.ProseMirror section[data-section-id] {
+  scroll-margin-top: 120px;
+  user-select: text;
+  cursor: text;
+}
+.ProseMirror section[data-section-id] > h2 {
+  user-select: text;
+  cursor: text;
+}
+
+/* 防止表格、图片、引用块跨页断裂 */
+.ProseMirror table,
+.ProseMirror img,
+.ProseMirror blockquote {
+  break-inside: avoid;
+}
+
+/* 编辑区页面视图 — 模拟 WPS 连续分页 */
+.editor-scroll-area {
+  background-color: #e5e5e5 !important;
+}
+
+.a4-page {
+  margin-bottom: 16px !important;
+}
+
+/* 分页辅助背景线：提示 A4 页面边界 */
+.ProseMirror {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0px,
+    transparent 1123px,
+    rgba(0,0,0,0.04) 1123px,
+    rgba(0,0,0,0.04) 1124px,
+    transparent 1124px,
+    transparent 1139px
+  );
+}
+
+/* 打印：隐藏工具栏、左侧导航、右侧面板，只保留 A4 内容 */
+@media print {
+  .editor-toolbar { display: none !important; }
+  .editor-left-nav { display: none !important; }
+  .editor-right-panel { display: none !important; }
+  .editor-status-bar { display: none !important; }
+  .editor-scroll-area {
+    overflow: visible !important;
+    padding: 0 !important;
+    background: #fff !important;
+  }
+  .a4-page {
+    box-shadow: none !important;
+    margin: 0 !important;
+    width: 100% !important;
+    padding: 0 !important;
+    background: transparent !important;
+  }
+  .ProseMirror {
+    background-image: none !important;
+    box-shadow: none !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  .ProseMirror h1 {
+    break-before: page;
+  }
+  .ProseMirror .page-break {
+    break-after: page;
+    height: 0;
+    margin: 0;
+    border: none;
+    padding: 0;
+  }
+}
+
+/* 屏幕上的轻量分页线效果 */
+@media screen {
+  /* 取消 h1 前面的固定分页间隙，恢复常规标题间距 */
+  /* 只在没有内联样式时应用 */
+  .ProseMirror h1:not([style]) {
+    margin-top: 22px;
+    padding-top: 0;
+    border-top: none;
+  }
+  .ProseMirror h1::before {
+    display: none;
+  }
+
+  /* 手动分页符：仅显示为一条轻量灰色分页线 */
+  .ProseMirror .page-break {
+    display: block;
+    height: 12px;
+    margin: 22px -90px;
+    background: #e5e5e5;
+    border: none;
+    position: relative;
+    text-indent: 0;
+    line-height: 0;
+    font-size: 0;
+  }
+}

@@ -1,0 +1,58 @@
+# 本地密钥（含 WPS AppSecret）
+.env.local
+.env*.local
+
+# Next.js
+.next/
+out/
+
+node_modules/
+
+# 本地 Python 依赖（仅用于 PRD 导出脚本）
+.python_docx_vendor/
+.venv/
+.venv-docx/
+
+# 构建缓存
+tsconfig.tsbuildinfo
+
+# 系统与 IDE
+.DS_Store
+.workbuddy/
+
+# 本地运行日志与进程文件
+*.log
+*.pid
+
+# 安装包与压缩包
+*.zip
+*.tar.gz
+*.tar.gz.*
+*.tar.xz
+*.xz
+onlyoffice-documentserver*/
+
+# 第三方 SDK 源码包（已复制到 public/vendor）
+web-office-sdk-solution-v*/
+
+# OnlyOffice 本地配置
+.onlyoffice/
+
+# 运行时生成的文档（保留 template.docx 作为空白模板）
+public/documents/*
+!public/documents/template.docx
+!public/documents/.gitkeep
+
+# 根目录参考文档与样例数据（非项目源码）
+/*.docx
+/*.doc
+/*.pptx
+/*.pdf
+品类信息2.json
+tree-menu.html
+generate_bg.py
+
+# docs 目录下自动生成的印刷版文档
+docs/*.docx
+docs/*.html.bak
+docs/*.png

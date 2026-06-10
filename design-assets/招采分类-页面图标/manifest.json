@@ -1,0 +1,357 @@
+{
+  "page": "招采分类",
+  "generatedAt": "2026-05-25T03:02:48.836Z",
+  "icons": [
+    {
+      "module": "category-page",
+      "file": "category-page/stat-l1-business-sector-16px.svg",
+      "png2x": "category-page/stat-l1-business-sector-16px@2x.png",
+      "lucide": "building-2",
+      "sizePx": 16,
+      "color": "#2563eb",
+      "strokeWidth": 2
+    },
+    {
+      "module": "category-page",
+      "file": "category-page/stat-l2-energy-type-16px.svg",
+      "png2x": "category-page/stat-l2-energy-type-16px@2x.png",
+      "lucide": "zap",
+      "sizePx": 16,
+      "color": "#059669",
+      "strokeWidth": 2
+    },
+    {
+      "module": "category-page",
+      "file": "category-page/stat-l3-business-stage-16px.svg",
+      "png2x": "category-page/stat-l3-business-stage-16px@2x.png",
+      "lucide": "layers",
+      "sizePx": 16,
+      "color": "#d97706",
+      "strokeWidth": 2
+    },
+    {
+      "module": "category-page",
+      "file": "category-page/stat-l4-business-nature-16px.svg",
+      "png2x": "category-page/stat-l4-business-nature-16px@2x.png",
+      "lucide": "folder-tree",
+      "sizePx": 16,
+      "color": "#7c3aed",
+      "strokeWidth": 2
+    },
+    {
+      "module": "category-page",
+      "file": "category-page/stat-l5-domain-level-16px.svg",
+      "png2x": "category-page/stat-l5-domain-level-16px@2x.png",
+      "lucide": "boxes",
+      "sizePx": 16,
+      "color": "#db2777",
+      "strokeWidth": 2
+    },
+    {
+      "module": "category-page",
+      "file": "category-page/stat-l6-lot-level-16px.svg",
+      "png2x": "category-page/stat-l6-lot-level-16px@2x.png",
+      "lucide": "folder-tree",
+      "sizePx": 16,
+      "color": "#0284c7",
+      "strokeWidth": 2
+    },
+    {
+      "module": "category-page",
+      "file": "category-page/toolbar-batch-upload-14px.svg",
+      "png2x": "category-page/toolbar-batch-upload-14px@2x.png",
+      "lucide": "upload",
+      "sizePx": 14,
+      "color": "#2563eb",
+      "strokeWidth": 2
+    },
+    {
+      "module": "category-page",
+      "file": "category-page/toolbar-export-lots-14px.svg",
+      "png2x": "category-page/toolbar-export-lots-14px@2x.png",
+      "lucide": "download",
+      "sizePx": 14,
+      "color": "#7c3aed",
+      "strokeWidth": 2
+    },
+    {
+      "module": "category-page",
+      "file": "category-page/toolbar-operation-log-14px.svg",
+      "png2x": "category-page/toolbar-operation-log-14px@2x.png",
+      "lucide": "clipboard-list",
+      "sizePx": 14,
+      "color": "#64748b",
+      "strokeWidth": 2
+    },
+    {
+      "module": "category-filter-bar",
+      "file": "category-filter-bar/search-14px.svg",
+      "png2x": "category-filter-bar/search-14px@2x.png",
+      "lucide": "search",
+      "sizePx": 14,
+      "color": "#94a3b8",
+      "strokeWidth": 2
+    },
+    {
+      "module": "category-filter-bar",
+      "file": "category-filter-bar/advanced-filter-14px.svg",
+      "png2x": "category-filter-bar/advanced-filter-14px@2x.png",
+      "lucide": "sliders-horizontal",
+      "sizePx": 14,
+      "color": "#334155",
+      "strokeWidth": 2
+    },
+    {
+      "module": "category-filter-bar",
+      "file": "category-filter-bar/advanced-toggle-14px.svg",
+      "png2x": "category-filter-bar/advanced-toggle-14px@2x.png",
+      "lucide": "chevron-down",
+      "sizePx": 14,
+      "color": "#64748b",
+      "strokeWidth": 2
+    },
+    {
+      "module": "category-filter-bar",
+      "file": "category-filter-bar/reset-filters-14px.svg",
+      "png2x": "category-filter-bar/reset-filters-14px@2x.png",
+      "lucide": "rotate-ccw",
+      "sizePx": 14,
+      "color": "#64748b",
+      "strokeWidth": 2
+    },
+    {
+      "module": "classification-nav-panel",
+      "file": "classification-nav-panel/header-add-root-14px.svg",
+      "png2x": "classification-nav-panel/header-add-root-14px@2x.png",
+      "lucide": "plus",
+      "sizePx": 14,
+      "color": "#2563eb",
+      "strokeWidth": 2
+    },
+    {
+      "module": "classification-nav-panel",
+      "file": "classification-nav-panel/search-14px.svg",
+      "png2x": "classification-nav-panel/search-14px@2x.png",
+      "lucide": "search",
+      "sizePx": 14,
+      "color": "#94a3b8",
+      "strokeWidth": 2
+    },
+    {
+      "module": "classification-nav-panel",
+      "file": "classification-nav-panel/node-expand-14px.svg",
+      "png2x": "classification-nav-panel/node-expand-14px@2x.png",
+      "lucide": "chevron-right",
+      "sizePx": 14,
+      "color": "#94a3b8",
+      "strokeWidth": 2
+    },
+    {
+      "module": "classification-nav-panel",
+      "file": "classification-nav-panel/node-add-child-14px.svg",
+      "png2x": "classification-nav-panel/node-add-child-14px@2x.png",
+      "lucide": "plus",
+      "sizePx": 14,
+      "color": "#64748b",
+      "strokeWidth": 2
+    },
+    {
+      "module": "classification-nav-panel",
+      "file": "classification-nav-panel/node-edit-14px.svg",
+      "png2x": "classification-nav-panel/node-edit-14px@2x.png",
+      "lucide": "pencil",
+      "sizePx": 14,
+      "color": "#64748b",
+      "strokeWidth": 2
+    },
+    {
+      "module": "classification-nav-panel",
+      "file": "classification-nav-panel/node-delete-14px.svg",
+      "png2x": "classification-nav-panel/node-delete-14px@2x.png",
+      "lucide": "trash-2",
+      "sizePx": 14,
+      "color": "#64748b",
+      "strokeWidth": 2
+    },
+    {
+      "module": "classification-nav-panel",
+      "file": "classification-nav-panel/node-delete-hover-14px.svg",
+      "png2x": "classification-nav-panel/node-delete-hover-14px@2x.png",
+      "lucide": "trash-2",
+      "sizePx": 14,
+      "color": "#e11d48",
+      "strokeWidth": 2
+    },
+    {
+      "module": "classification-nav-panel",
+      "file": "classification-nav-panel/level-1-sector-14px.svg",
+      "png2x": "classification-nav-panel/level-1-sector-14px@2x.png",
+      "lucide": "building-2",
+      "sizePx": 14,
+      "color": "#2563eb",
+      "strokeWidth": 2
+    },
+    {
+      "module": "classification-nav-panel",
+      "file": "classification-nav-panel/level-2-energy-14px.svg",
+      "png2x": "classification-nav-panel/level-2-energy-14px@2x.png",
+      "lucide": "folder",
+      "sizePx": 14,
+      "color": "#059669",
+      "strokeWidth": 2
+    },
+    {
+      "module": "classification-nav-panel",
+      "file": "classification-nav-panel/level-3-stage-14px.svg",
+      "png2x": "classification-nav-panel/level-3-stage-14px@2x.png",
+      "lucide": "file-text",
+      "sizePx": 14,
+      "color": "#d97706",
+      "strokeWidth": 2
+    },
+    {
+      "module": "classification-nav-panel",
+      "file": "classification-nav-panel/level-4-nature-14px.svg",
+      "png2x": "classification-nav-panel/level-4-nature-14px@2x.png",
+      "lucide": "layers",
+      "sizePx": 14,
+      "color": "#7c3aed",
+      "strokeWidth": 2
+    },
+    {
+      "module": "classification-nav-panel",
+      "file": "classification-nav-panel/level-5-domain-14px.svg",
+      "png2x": "classification-nav-panel/level-5-domain-14px@2x.png",
+      "lucide": "star",
+      "sizePx": 14,
+      "color": "#db2777",
+      "strokeWidth": 2
+    },
+    {
+      "module": "classification-nav-panel",
+      "file": "classification-nav-panel/level-6-lot-14px.svg",
+      "png2x": "classification-nav-panel/level-6-lot-14px@2x.png",
+      "lucide": "circle-dot",
+      "sizePx": 14,
+      "color": "#64748b",
+      "strokeWidth": 2
+    },
+    {
+      "module": "category-directory-workspace",
+      "file": "category-directory-workspace/breadcrumb-chevron-12px.svg",
+      "png2x": "category-directory-workspace/breadcrumb-chevron-12px@2x.png",
+      "lucide": "chevron-right",
+      "sizePx": 12,
+      "color": "#cbd5e1",
+      "strokeWidth": 2
+    },
+    {
+      "module": "category-directory-workspace",
+      "file": "category-directory-workspace/section-basic-info-16px.svg",
+      "png2x": "category-directory-workspace/section-basic-info-16px@2x.png",
+      "lucide": "info",
+      "sizePx": 16,
+      "color": "#2563eb",
+      "strokeWidth": 2
+    },
+    {
+      "module": "category-directory-workspace",
+      "file": "category-directory-workspace/section-tree-description-16px.svg",
+      "png2x": "category-directory-workspace/section-tree-description-16px@2x.png",
+      "lucide": "file-text",
+      "sizePx": 16,
+      "color": "#2563eb",
+      "strokeWidth": 2
+    },
+    {
+      "module": "category-directory-workspace",
+      "file": "category-directory-workspace/empty-state-20px.svg",
+      "png2x": "category-directory-workspace/empty-state-20px@2x.png",
+      "lucide": "folder-tree",
+      "sizePx": 20,
+      "color": "#2563eb",
+      "strokeWidth": 2
+    },
+    {
+      "module": "directory-node-form-dialog",
+      "file": "directory-node-form-dialog/close-16px.svg",
+      "png2x": "directory-node-form-dialog/close-16px@2x.png",
+      "lucide": "x",
+      "sizePx": 16,
+      "color": "#94a3b8",
+      "strokeWidth": 2
+    },
+    {
+      "module": "batch-import-dialog",
+      "file": "batch-import-dialog/close-20px.svg",
+      "png2x": "batch-import-dialog/close-20px@2x.png",
+      "lucide": "x",
+      "sizePx": 20,
+      "color": "#64748b",
+      "strokeWidth": 2
+    },
+    {
+      "module": "batch-import-dialog",
+      "file": "batch-import-dialog/download-template-16px.svg",
+      "png2x": "batch-import-dialog/download-template-16px@2x.png",
+      "lucide": "file-spreadsheet",
+      "sizePx": 16,
+      "color": "#059669",
+      "strokeWidth": 2
+    },
+    {
+      "module": "batch-import-dialog",
+      "file": "batch-import-dialog/upload-zone-32px.svg",
+      "png2x": "batch-import-dialog/upload-zone-32px@2x.png",
+      "lucide": "upload",
+      "sizePx": 32,
+      "color": "#94a3b8",
+      "strokeWidth": 2
+    },
+    {
+      "module": "batch-import-dialog",
+      "file": "batch-import-dialog/alert-16px.svg",
+      "png2x": "batch-import-dialog/alert-16px@2x.png",
+      "lucide": "alert-circle",
+      "sizePx": 16,
+      "color": "#d97706",
+      "strokeWidth": 2
+    },
+    {
+      "module": "batch-import-dialog",
+      "file": "batch-import-dialog/success-20px.svg",
+      "png2x": "batch-import-dialog/success-20px@2x.png",
+      "lucide": "check-circle-2",
+      "sizePx": 20,
+      "color": "#059669",
+      "strokeWidth": 2
+    },
+    {
+      "module": "export-lots-dialog",
+      "file": "export-lots-dialog/close-20px.svg",
+      "png2x": "export-lots-dialog/close-20px@2x.png",
+      "lucide": "x",
+      "sizePx": 20,
+      "color": "#64748b",
+      "strokeWidth": 2
+    },
+    {
+      "module": "export-lots-dialog",
+      "file": "export-lots-dialog/format-excel-16px.svg",
+      "png2x": "export-lots-dialog/format-excel-16px@2x.png",
+      "lucide": "file-spreadsheet",
+      "sizePx": 16,
+      "color": "#059669",
+      "strokeWidth": 2
+    },
+    {
+      "module": "export-lots-dialog",
+      "file": "export-lots-dialog/download-16px.svg",
+      "png2x": "export-lots-dialog/download-16px@2x.png",
+      "lucide": "download",
+      "sizePx": 16,
+      "color": "#2563eb",
+      "strokeWidth": 2
+    }
+  ]
+}

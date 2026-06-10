@@ -1,0 +1,677 @@
+import type {
+  BidDocument,
+  LotLevelPath,
+  Template,
+  TemplateSection,
+  TemplateVariable,
+  TextFragment,
+  TextBinding,
+} from '@/types';
+import { seedLotIds } from '@/lib/classification/seed-lot-ids';
+import { bindingMatchesSection, bindingTouchesTemplate } from '@/lib/textBindingMatch';
+import { appendDataAudit, getMockActor } from '@/lib/dataAudit';
+import {
+  getClassificationStore,
+  migrateLegacyCategoryId,
+  normalizeTemplateLotFields,
+  normalizeTextFragmentLotScope,
+  resolveLotLevelPath,
+  templateFieldsFromLotPath,
+} from '@/lib/classification';
+
+type SoftRow = { id: string; deletedAt?: string; deletedBy?: string };
+
+function mergeActivePreserveDeleted<T extends SoftRow>(active: T[], storedFull: T[]): T[] {
+  const deletedRows = storedFull.filter((x) => x.deletedAt);
+  const activeIds = new Set(active.map((x) => x.id));
+  return [...active, ...deletedRows.filter((d) => !activeIds.has(d.id))];
+}
+
+
+const STORAGE_KEYS = {
+  textFragments: 'oo-text-fragments',
+  templates: 'oo-templates',
+  bidDocuments: 'oo-bid-documents',
+  globalTemplateVars: 'oo-global-template-variables',
+} as const;
+
+/** 招标范本通用变量（全范本变量库展示；不写入单个 Template.variables） */
+const GLOBAL_TEMPLATE_VARIABLES_SEED: TemplateVariable[] = [
+  { id: 'gv-tenderer', name: '招标人', key: '{{招标人}}', scope: 'global', defaultValue: '（填写招标人全称）' },
+  { id: 'gv-agency', name: '招标代理机构', key: '{{招标代理机构}}', scope: 'global', defaultValue: '（如有，填写机构全称）' },
+  { id: 'gv-project-name', name: '项目名称', key: '{{项目名称}}', scope: 'global', defaultValue: '（填写立项批复或对外披露的项目名称）' },
+  { id: 'gv-project-code', name: '招标编号', key: '{{招标编号}}', scope: 'global', defaultValue: 'ZB-2026-0001' },
+  { id: 'gv-location', name: '建设地点', key: '{{建设地点}}', scope: 'global', defaultValue: '（省/市/区及详细地址）' },
+  { id: 'gv-duration', name: '工期', key: '{{工期}}', scope: 'global', defaultValue: '180日历天' },
+  { id: 'gv-control-price', name: '招标控制价', key: '{{招标控制价}}', scope: 'global', defaultValue: '（人民币，大小写）' },
+  { id: 'gv-bid-deadline', name: '投标文件递交截止时间', key: '{{投标文件递交截止时间}}', scope: 'global', defaultValue: '2026年__月__日__时__分' },
+  { id: 'gv-open-info', name: '开标时间与地点', key: '{{开标时间与地点}}', scope: 'global', defaultValue: '（填写开标日期时间、会议室或电子开标说明）' },
+  { id: 'gv-contact', name: '联系人', key: '{{联系人}}', scope: 'global', defaultValue: '（姓名）' },
+  { id: 'gv-phone', name: '联系电话', key: '{{联系电话}}', scope: 'global', defaultValue: '010-________' },
+  { id: 'gv-email', name: '电子邮箱', key: '{{电子邮箱}}', scope: 'global', defaultValue: '（邮箱地址）' },
+];
+
+function stripTemplateVariableMetaDeprecated(v: TemplateVariable): TemplateVariable {
+  const { required: _r, ...rest } = v;
+  return rest as TemplateVariable;
+}
+
+export function getGlobalTemplateVariables(): TemplateVariable[] {
+  if (typeof window === 'undefined') {
+    return deepClone(GLOBAL_TEMPLATE_VARIABLES_SEED);
+  }
+  const raw = deepClone(readStorage(STORAGE_KEYS.globalTemplateVars, GLOBAL_TEMPLATE_VARIABLES_SEED));
+  return raw.map(stripTemplateVariableMetaDeprecated);
+}
+
+/** 持久化「范本公共变量」（与范本编辑器变量库「通用型」同源） */
+export function setGlobalTemplateVariables(vars: TemplateVariable[]) {
+  writeStorage(STORAGE_KEYS.globalTemplateVars, deepClone(vars));
+}
+
+function cloneTemplateSectionsWithNewIds(
+  sections: TemplateSection[],
+  newTemplateId: string,
+  idMap: Map<string, string>,
+  parentNewId: string | undefined,
+  idCounter: { n: number },
+): TemplateSection[] {
+  return sections.map((s) => {
+    idCounter.n += 1;
+    const newId = `sec-${Date.now()}-${idCounter.n}-${Math.random().toString(36).slice(2, 9)}`;
+    idMap.set(s.id, newId);
+    const children = s.children?.length
+      ? cloneTemplateSectionsWithNewIds(s.children, newTemplateId, idMap, newId, idCounter)
+      : undefined;
+    return {
+      ...s,
+      id: newId,
+      templateId: newTemplateId,
+      /** 子层使用新父节 ID；顶层保留原 parentId（多为框架大纲关联） */
+      parentId: parentNewId !== undefined ? parentNewId : s.parentId,
+      children,
+    };
+  });
+}
+
+function flattenSectionTitles(sections: TemplateSection[]): Map<string, string> {
+  const m = new Map<string, string>();
+  const walk = (secs: TemplateSection[]) => {
+    secs.forEach((s) => {
+      m.set(s.id, s.title || '');
+      if (s.children?.length) walk(s.children);
+    });
+  };
+  walk(sections);
+  return m;
+}
+
+/** 复制范本时由用户填写的新范本元信息（标段 / 名称等） */
+export interface DuplicateTemplateOptions {
+  name: string;
+  description?: string;
+  lotLevelId: string;
+  /** 留空则按目标标段下已有范本数量自动生成 V{n}.0 */
+  version?: string;
+}
+
+/** 复制范本：章节正文、自定义变量与资源侧「范本节」绑定关系一并复制到新范本 */
+export function duplicateMockTemplate(
+  sourceId: string,
+  options?: DuplicateTemplateOptions,
+): Template | null {
+  if (typeof window !== 'undefined') {
+    mockTemplates = readStorage(STORAGE_KEYS.templates, mockTemplates);
+    mockTextFragments = readStorage(STORAGE_KEYS.textFragments, mockTextFragments);
+  }
+  const source = mockTemplates.find((t) => t.id === sourceId && !t.deletedAt);
+  if (!source) {
+    return null;
+  }
+  const now = new Date().toISOString().split('T')[0];
+  const newTemplateId = `tpl-${Date.now()}`;
+  const idMap = new Map<string, string>();
+  const newSections = cloneTemplateSectionsWithNewIds(
+    source.sections,
+    newTemplateId,
+    idMap,
+    undefined,
+    { n: 0 },
+  );
+  const baseName = source.name.trim();
+
+  let copyLabel: string;
+  let newTemplate: Template;
+
+  if (options) {
+    const trimmedName = options.name.trim();
+    if (!trimmedName) {
+      return null;
+    }
+    const lotLevelId = options.lotLevelId;
+    const path = resolveLotLevelPath(lotLevelId);
+    if (!path) {
+      return null;
+    }
+    copyLabel = trimmedName;
+    const existingForLot = mockTemplates.filter(
+      (t) => t.lotLevelId === lotLevelId && !t.deletedAt,
+    );
+    const autoVersion = `V${existingForLot.length + 1}.0`;
+    const nextVersion = options.version?.trim() || autoVersion;
+    const desc = options.description?.trim();
+    newTemplate = {
+      ...source,
+      id: newTemplateId,
+      name: copyLabel,
+      description: desc || undefined,
+      ...templateFieldsFromLotPath(path),
+      version: nextVersion,
+      status: 'draft',
+      createdAt: now,
+      updatedAt: now,
+      sections: newSections,
+      variables: deepClone(source.variables ?? []).filter((v) => v.scope !== 'global'),
+    };
+  } else {
+    copyLabel = `${baseName}（副本）`;
+    newTemplate = {
+      ...source,
+      id: newTemplateId,
+      name: copyLabel,
+      status: 'draft',
+      createdAt: now,
+      updatedAt: now,
+      sections: newSections,
+      variables: deepClone(source.variables ?? []).filter((v) => v.scope !== 'global'),
+    };
+  }
+  const newTitles = flattenSectionTitles(newSections);
+
+  mockTemplates = [...mockTemplates, newTemplate];
+  writeStorage(STORAGE_KEYS.templates, mockTemplates);
+
+  mockTextFragments = mockTextFragments.map((f) => {
+    const bindings = f.bindings ?? [];
+    const extras: TextBinding[] = [];
+    for (const b of bindings) {
+      if (b.templateId !== sourceId || !b.templateSectionId) continue;
+      const newSecId = idMap.get(b.templateSectionId);
+      if (!newSecId) continue;
+      const dup = bindings.some((x) => x.templateId === newTemplateId && x.templateSectionId === newSecId);
+      if (dup) continue;
+      extras.push({
+        ...b,
+        id: `bind-${Date.now()}-${f.id}-${newSecId}-${Math.random().toString(36).slice(2, 7)}`,
+        templateId: newTemplateId,
+        templateSectionId: newSecId,
+        templateName: copyLabel,
+        sectionTitle: newTitles.get(newSecId) ?? b.sectionTitle,
+        order: bindings.length + extras.length + 1,
+      });
+    }
+    if (extras.length === 0) return f;
+    return { ...f, bindings: [...bindings, ...extras] };
+  });
+  writeStorage(STORAGE_KEYS.textFragments, mockTextFragments);
+
+  appendDataAudit({
+    scope: 'template',
+    action: 'create',
+    entityId: newTemplateId,
+    label: copyLabel,
+    detail: options
+      ? `复制自 ${source.name}（${sourceId}），新标段 ${options.lotLevelId}`
+      : `一键复制自 ${source.name}（${sourceId}）`,
+    actor: getMockActor(),
+  });
+
+  return deepClone(newTemplate);
+}
+
+/** 合并展示/填写用：全系统通用变量 + 当前范本自定义；同 key 时以范本内为准 */
+export function getEffectiveTemplateVariables(template: Template): TemplateVariable[] {
+  const globals = getGlobalTemplateVariables();
+  const custom = (template.variables ?? []).filter((v) => v.scope !== 'global');
+  const byKey = new Map<string, TemplateVariable>();
+  for (const g of globals) {
+    byKey.set(g.key, g);
+  }
+  for (const c of custom) {
+    byKey.set(c.key, c);
+  }
+  return [...byKey.values()];
+}
+
+function deepClone<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function readStorage<T>(key: string, fallback: T): T {
+  if (typeof window === 'undefined') {
+    return deepClone(fallback);
+  }
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) {
+      return deepClone(fallback);
+    }
+    return JSON.parse(raw) as T;
+  } catch {
+    return deepClone(fallback);
+  }
+}
+
+function writeStorage<T>(key: string, value: T) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // ignore localStorage write errors
+  }
+}
+
+/** 从标段 ID 解析完整路径 */
+export function getLotLevelPath(lotLevelId: string): LotLevelPath | null {
+  return resolveLotLevelPath(migrateLegacyCategoryId(lotLevelId));
+}
+
+/** 标段展示标签（业务板块 / 业务类型 / 标段名） */
+export function getLotLevelLabel(lotLevelId: string) {
+  const path = getLotLevelPath(lotLevelId);
+  if (!path) return null;
+  return {
+    lotLevelName: path.lotLevelName,
+    businessSectorName: path.businessSectorName,
+    businessTypeDisplayName: path.businessTypeDisplayName,
+    businessPath: [path.businessSectorName, path.businessTypeDisplayName, path.domainLevelName, path.lotLevelName]
+      .filter(Boolean)
+      .join(' / '),
+  };
+}
+
+/** @deprecated 使用 getLotLevelLabel */
+export const getCategoryLabel = getLotLevelLabel;
+
+/** 获取全部标段扁平列表 */
+export function getAllLotLevels() {
+  const store = getClassificationStore();
+  return store.lotLevels.map((lot) => {
+    const path = resolveLotLevelPath(lot.id, store);
+    return { ...lot, path };
+  });
+}
+
+/** @deprecated */
+export const getAllCategories = getAllLotLevels;
+
+// ─── Mock 文本片段数据（与 TextPage 共享）────────────────────────────────────
+const defaultTextFragments: TextFragment[] = [
+  {
+    id: 'txt-1',
+    name: '标准资格要求条款',
+    module: 'qualification',
+    content: '<h2>一、基本资格条件</h2><p>投标人应具备以下资格条件：</p><ol><li>具有独立法人资格；</li><li>具有良好的商业信誉和健全的财务会计制度；</li><li>具有履行合同所必需的设备和专业技术能力；</li><li>具有依法缴纳税收和社会保障资金的良好记录；</li><li>参加本次招标活动前三年内，在经营活动中没有重大违法记录。</li></ol>',
+    description: '适用于各类招标项目的通用资格要求',
+    createdAt: '2024-01-10',
+    updatedAt: '2024-01-15',
+    contentVersion: 1,
+    templateSyncedVersion: {},
+    bindings: [],
+    versions: [],
+  },
+  {
+    id: 'txt-2',
+    name: '投标文件密封要求',
+    module: 'text',
+    content: '<h2>密封要求</h2><p>投标文件应按以下要求密封：</p><ol><li>投标文件正本和副本应分别密封，并在封套上标明"正本"或"副本"字样；</li><li>封套上应注明招标项目名称、投标人名称和地址；</li><li>封套应加盖投标人公章；</li><li>未按要求密封的投标文件，招标人有权拒收。</li></ol>',
+    description: '投标文件密封的标准要求',
+    createdAt: '2024-01-12',
+    updatedAt: '2024-01-18',
+    contentVersion: 1,
+    templateSyncedVersion: {},
+    bindings: [],
+    versions: [],
+  },
+  {
+    id: 'txt-3',
+    name: '评标办法通用条款',
+    module: 'evaluation',
+    content: '<h2>评标办法</h2><p>本项目采用综合评分法进行评标，评分标准如下：</p><ol><li>商务评分（30分）：包括报价合理性、付款条件等；</li><li>技术评分（50分）：包括技术方案、设备参数、实施计划等；</li><li>业绩评分（20分）：包括同类项目业绩、企业资质等。</li></ol>',
+    description: '综合评分法评标通用条款（演示：仅「光伏项目EPC工程总承包」品类范本侧栏可见）',
+    applicableToAllLotLevels: false,
+    applicableLotLevelIds: [seedLotIds.kancha],
+    createdAt: '2024-01-14',
+    updatedAt: '2024-01-20',
+    contentVersion: 1,
+    templateSyncedVersion: {},
+    bindings: [],
+    versions: [],
+  },
+  {
+    id: 'txt-4',
+    name: '合同通用条款',
+    module: 'contract-clause',
+    content: '<h2>合同条款</h2><p>合同履行期间，双方应遵守以下条款：</p><ol><li>中标人应在接到中标通知书后30日内与招标人签订合同；</li><li>合同价格以中标价为准，不得随意变更；</li><li>履约保证金按合同总价的5%缴纳；</li><li>任何一方违约，应承担相应的违约责任。</li></ol>',
+    description: '合同签订与履行通用条款',
+    createdAt: '2024-01-16',
+    updatedAt: '2024-01-22',
+    contentVersion: 1,
+    templateSyncedVersion: {},
+    bindings: [],
+    versions: [],
+  },
+];
+
+export let mockTextFragments: TextFragment[] = deepClone(defaultTextFragments);
+
+export function getMockTextFragments(): TextFragment[] {
+  if (mockTextFragments.length === 0) {
+    mockTextFragments = readStorage(STORAGE_KEYS.textFragments, defaultTextFragments);
+  } else if (typeof window !== 'undefined') {
+    mockTextFragments = readStorage(STORAGE_KEYS.textFragments, mockTextFragments);
+  }
+  return deepClone(mockTextFragments)
+    .filter((f) => !f.deletedAt)
+    .map((f) => normalizeTextFragment(f));
+}
+
+export function setMockTextFragments(activeFragments: TextFragment[]) {
+  const stored =
+    typeof window !== 'undefined'
+      ? readStorage(STORAGE_KEYS.textFragments, mockTextFragments)
+      : mockTextFragments;
+  mockTextFragments = mergeActivePreserveDeleted(activeFragments, stored);
+  writeStorage(STORAGE_KEYS.textFragments, mockTextFragments);
+}
+
+export function softDeleteTextFragment(id: string, actor?: string) {
+  const actorResolved = actor ?? getMockActor();
+  if (typeof window !== 'undefined') {
+    mockTextFragments = readStorage(STORAGE_KEYS.textFragments, mockTextFragments);
+  }
+  const now = new Date().toISOString();
+  const label = mockTextFragments.find((f) => f.id === id)?.name;
+  mockTextFragments = mockTextFragments.map((f) =>
+    f.id === id ? { ...f, deletedAt: now, deletedBy: actorResolved } : f,
+  );
+  writeStorage(STORAGE_KEYS.textFragments, mockTextFragments);
+  appendDataAudit({
+    scope: 'text',
+    action: 'delete',
+    entityId: id,
+    label,
+    actor: actorResolved,
+  });
+}
+
+// ─── Mock 范本数据（跨页面共享，用于文本引用同步）────────────────────────────
+
+export let mockTemplates: Template[] = [];
+
+export function getMockTemplates(): Template[] {
+  if (typeof window !== 'undefined') {
+    mockTemplates = readStorage(STORAGE_KEYS.templates, mockTemplates);
+    let migrated = false;
+    mockTemplates = mockTemplates.map((t) => {
+      const st = (t as { status?: string }).status;
+      if (st === 'archived') {
+        migrated = true;
+        return { ...t, status: 'published' as const };
+      }
+      return t;
+    });
+    if (migrated) {
+      writeStorage(STORAGE_KEYS.templates, mockTemplates);
+    }
+  }
+  return deepClone(mockTemplates)
+    .filter((t) => !t.deletedAt)
+    .map((t) => normalizeTemplateLotFields(t));
+}
+
+export function setMockTemplates(activeTemplates: Template[]) {
+  const stored =
+    typeof window !== 'undefined' ? readStorage(STORAGE_KEYS.templates, mockTemplates) : mockTemplates;
+  mockTemplates = mergeActivePreserveDeleted(activeTemplates, stored);
+  writeStorage(STORAGE_KEYS.templates, mockTemplates);
+}
+
+export function softDeleteTemplate(id: string, actor?: string) {
+  const actorResolved = actor ?? getMockActor();
+  if (typeof window !== 'undefined') {
+    mockTemplates = readStorage(STORAGE_KEYS.templates, mockTemplates);
+  }
+  const now = new Date().toISOString();
+  const label = mockTemplates.find((t) => t.id === id)?.name;
+  mockTemplates = mockTemplates.map((t) =>
+    t.id === id ? { ...t, deletedAt: now, deletedBy: actorResolved } : t,
+  );
+  writeStorage(STORAGE_KEYS.templates, mockTemplates);
+  appendDataAudit({
+    scope: 'template',
+    action: 'delete',
+    entityId: id,
+    label,
+    actor: actorResolved,
+  });
+}
+
+function getBindingsForFragment(textFragmentId: string): TextBinding[] {
+  const frag = mockTextFragments.find(f => f.id === textFragmentId);
+  return frag?.bindings ?? [];
+}
+
+/** 兼容旧版：草稿/发布态合并为单一正文，并补齐版本与范本同步游标 */
+export function normalizeTextFragment(f: TextFragment): TextFragment {
+  const legacy = f as TextFragment & { status?: string; draftContent?: string };
+  const content = legacy.draftContent?.trim() ? legacy.draftContent : (legacy.content ?? '');
+  const cv = typeof legacy.contentVersion === 'number' ? legacy.contentVersion : 1;
+  let templateSyncedVersion = legacy.templateSyncedVersion;
+  if (!templateSyncedVersion || Object.keys(templateSyncedVersion).length === 0) {
+    const tids = new Set<string>();
+    for (const b of legacy.bindings ?? []) {
+      if (b.templateId) tids.add(b.templateId);
+    }
+    templateSyncedVersion = Object.fromEntries([...tids].map((id) => [id, cv])) as Record<string, number>;
+  }
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- 剥离历史字段
+  const { status: _s, draftContent: _d, ...rest } = legacy as TextFragment & {
+    status?: unknown;
+    draftContent?: unknown;
+  };
+  return normalizeTextFragmentLotScope({
+    ...rest,
+    content,
+    contentVersion: cv,
+    templateSyncedVersion,
+    versions: legacy.versions ?? [],
+  });
+}
+
+/** 绑定记录 + 范本章节中 textFragmentId 扫描，汇总引用该资源的范本 ID（不含已删除范本行） */
+export function collectTemplateIdsUsingFragment(frag: TextFragment): string[] {
+  if (typeof window !== 'undefined') {
+    mockTemplates = readStorage(STORAGE_KEYS.templates, mockTemplates);
+  }
+  const ids = new Set<string>();
+  for (const b of frag.bindings ?? []) {
+    if (b.templateId) ids.add(b.templateId);
+  }
+  const fid = frag.id;
+  for (const t of mockTemplates) {
+    if (t.deletedAt) continue;
+    if (JSON.stringify(t.sections).includes(`"textFragmentId":"${fid}"`)) {
+      ids.add(t.id);
+    }
+  }
+  return [...ids];
+}
+
+export interface FragmentTemplateUsageRow {
+  templateId: string;
+  templateName: string;
+  /** 范本内嵌章节是否已对齐到当前资源 contentVersion */
+  synced: boolean;
+  /** 展示用：首次引用取范本更新时间，同步过后取资源更新时间 */
+  referencedAt?: string;
+  businessSectorName?: string;
+  businessTypeDisplayName?: string;
+  lotLevelName?: string;
+}
+
+/** 范本引用与同步状态（用于资源详情「范本使用统计」） */
+export function getFragmentTemplateUsage(frag: TextFragment): {
+  rows: FragmentTemplateUsageRow[];
+  pendingCount: number;
+} {
+  if (typeof window !== 'undefined') {
+    mockTemplates = readStorage(STORAGE_KEYS.templates, mockTemplates);
+  }
+  const cv = frag.contentVersion ?? 1;
+  const ts = frag.templateSyncedVersion ?? {};
+  const rows: FragmentTemplateUsageRow[] = [];
+  for (const tid of collectTemplateIdsUsingFragment(frag)) {
+    const t = mockTemplates.find((x) => x.id === tid && !x.deletedAt);
+    if (!t) continue;
+    const synced = (ts[tid] ?? 0) >= cv;
+    const hasSyncedBefore = (ts[tid] ?? 0) > 0;
+    rows.push({
+      templateId: tid,
+      templateName: t.name,
+      synced,
+      referencedAt: hasSyncedBefore ? frag.updatedAt : t.updatedAt,
+      businessSectorName: t.businessSectorName,
+      businessTypeDisplayName: t.businessTypeDisplayName,
+      lotLevelName: t.lotLevelName,
+    });
+  }
+  return {
+    rows,
+    pendingCount: rows.filter((r) => !r.synced).length,
+  };
+}
+
+function sectionInheritsFromFragment(
+  tpl: Template,
+  sec: TemplateSection,
+  textFragmentId: string,
+  bindings: TextBinding[],
+): boolean {
+  if (sec.textFragmentId === textFragmentId) {
+    return true;
+  }
+  return bindings.some((b) => bindingMatchesSection(b, tpl, sec));
+}
+
+export function updateMockTemplateTextFragment(textFragmentId: string, newContent: string, updatedAt: string) {
+  const bindings = getBindingsForFragment(textFragmentId);
+
+  const updateSectionsForTemplate = (tpl: Template, sections: TemplateSection[]): TemplateSection[] => {
+    return sections.map(sec => {
+      const updated = { ...sec };
+      if (sectionInheritsFromFragment(tpl, sec, textFragmentId, bindings)) {
+        updated.content = newContent;
+        if (!sec.textFragmentId) {
+          updated.textFragmentId = textFragmentId;
+        }
+      }
+      if (sec.children?.length) {
+        updated.children = updateSectionsForTemplate(tpl, sec.children);
+      }
+      return updated;
+    });
+  };
+
+  mockTemplates = mockTemplates.map(tpl => {
+    if (tpl.deletedAt) {
+      return tpl;
+    }
+    const hasDirectId = JSON.stringify(tpl.sections).includes(`"textFragmentId":"${textFragmentId}"`);
+    const hasTplBinding =
+      bindings.length > 0 && bindings.some((b) => bindingTouchesTemplate(b, tpl));
+    if (!hasDirectId && !hasTplBinding) {
+      return tpl;
+    }
+    return {
+      ...tpl,
+      sections: updateSectionsForTemplate(tpl, tpl.sections),
+      updatedAt,
+    };
+  });
+  writeStorage(STORAGE_KEYS.templates, mockTemplates);
+}
+
+/** 将当前资源正文写入所有引用该资源的范本章节（跳过已删除范本），并把各范本的「已同步」游标更新到当前 contentVersion */
+export function syncTextFragmentToAllTemplates(textFragmentId: string) {
+  if (typeof window !== 'undefined') {
+    mockTextFragments = readStorage(STORAGE_KEYS.textFragments, mockTextFragments);
+    mockTemplates = readStorage(STORAGE_KEYS.templates, mockTemplates);
+  }
+  const frag = mockTextFragments.find((f) => f.id === textFragmentId && !f.deletedAt);
+  if (!frag) return;
+  const cv = frag.contentVersion ?? 1;
+  const html = frag.content ?? '';
+  const now = new Date().toISOString().split('T')[0];
+  updateMockTemplateTextFragment(textFragmentId, html, now);
+  const tids = collectTemplateIdsUsingFragment(frag);
+  const next: Record<string, number> = { ...(frag.templateSyncedVersion ?? {}) };
+  for (const tid of tids) {
+    const t = mockTemplates.find((x) => x.id === tid);
+    if (t && !t.deletedAt) {
+      next[tid] = cv;
+    }
+  }
+  mockTextFragments = mockTextFragments.map((f) =>
+    f.id === textFragmentId ? { ...f, templateSyncedVersion: next } : f,
+  );
+  writeStorage(STORAGE_KEYS.textFragments, mockTextFragments);
+  appendDataAudit({
+    scope: 'text',
+    action: 'update',
+    entityId: textFragmentId,
+    label: frag.name,
+    detail: '同步到所有范本',
+    actor: getMockActor(),
+  });
+}
+
+export let mockBidDocuments: BidDocument[] = [];
+
+export function getMockBidDocuments(): BidDocument[] {
+  if (typeof window !== 'undefined') {
+    mockBidDocuments = readStorage(STORAGE_KEYS.bidDocuments, mockBidDocuments);
+  }
+  return deepClone(mockBidDocuments).filter((d) => !d.deletedAt);
+}
+
+export function setMockBidDocuments(activeDocs: BidDocument[]) {
+  const stored =
+    typeof window !== 'undefined'
+      ? readStorage(STORAGE_KEYS.bidDocuments, mockBidDocuments)
+      : mockBidDocuments;
+  mockBidDocuments = mergeActivePreserveDeleted(activeDocs, stored);
+  writeStorage(STORAGE_KEYS.bidDocuments, mockBidDocuments);
+}
+
+export function softDeleteBidDocument(id: string, actor?: string) {
+  const actorResolved = actor ?? getMockActor();
+  if (typeof window !== 'undefined') {
+    mockBidDocuments = readStorage(STORAGE_KEYS.bidDocuments, mockBidDocuments);
+  }
+  const now = new Date().toISOString();
+  const label = mockBidDocuments.find((d) => d.id === id)?.name;
+  mockBidDocuments = mockBidDocuments.map((d) =>
+    d.id === id ? { ...d, deletedAt: now, deletedBy: actorResolved } : d,
+  );
+  writeStorage(STORAGE_KEYS.bidDocuments, mockBidDocuments);
+  appendDataAudit({
+    scope: 'bid',
+    action: 'delete',
+    entityId: id,
+    label,
+    actor: actorResolved,
+  });
+}

@@ -1,0 +1,25 @@
+{
+  "name": "Resource Insert Bridge",
+  "guid": "asc.{A4C6B74B-87A7-4FD6-9C4A-1E5E4A2A1001}",
+  "baseUrl": "./",
+  "variations": [
+    {
+      "description": "Background plugin for queued resource insertion",
+      "url": "index.html",
+      "icons": [
+        "icon.svg",
+        "icon.svg"
+      ],
+      "isViewer": false,
+      "EditorsSupport": [
+        "word"
+      ],
+      "isVisual": false,
+      "isModal": false,
+      "isInsideMode": false,
+      "initDataType": "none",
+      "initData": "",
+      "buttons": []
+    }
+  ]
+}
