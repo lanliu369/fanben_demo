@@ -13,6 +13,7 @@ const envExtra =
     .filter(Boolean) ?? [];
 
 const nextConfig: NextConfig = {
+  output: "standalone",
   allowedDevOrigins: [
     "10.176.73.3",
     "localhost",

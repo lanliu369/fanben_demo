@@ -1,0 +1,34 @@
+# 依赖与构建产物
+node_modules
+.next
+out
+
+# Git 与本地配置
+.git
+.gitignore
+.env*
+!.env.example
+
+# 开发/日志
+*.log
+*.pid
+.DS_Store
+.workbuddy
+
+# 安装包与压缩包（仓库内可能存在的本地文件）
+*.zip
+*.tar.gz
+*.tar.gz.*
+*.tar.xz
+*.xz
+onlyoffice-documentserver*/
+
+# Python 虚拟环境
+.venv
+.venv-docx
+.python_docx_vendor
+
+# 第三方 SDK 源码包（已复制到 public/vendor）
+web-office-sdk-solution-v*/
+
+.onlyoffice
