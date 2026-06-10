@@ -32,7 +32,6 @@ import { FormSelect } from '@/components/ui/FormSelect';
 import { resolveSectionRichHtml } from '@/lib/resolveTemplateSectionHtml';
 import { parseSectionsFromHTML } from './TemplateEditor';
 import { WpsTemplateEditor } from '@/components/editor/WpsTemplateEditor';
-import { OnlyOfficeTemplateEditor } from '@/components/editor/OnlyOfficeTemplateEditor';
 import { SystemDialog } from '@/components/ui/SystemDialog';
 import { ModalOverlay } from '@/components/ui/ModalOverlay';
 import { SystemTooltip } from '@/components/ui/SystemTooltip';
@@ -587,9 +586,6 @@ export default function TemplatePage() {
   });
   const [editingTemplate, setEditingTemplate] = useState<Template | null>(null);
   const [editingTemplateFile, setEditingTemplateFile] = useState<File | null>(null);
-  const [editorType, setEditorType] = useState<'wps' | 'onlyoffice' | null>(null);
-  const [editorChoiceOpen, setEditorChoiceOpen] = useState(false);
-  const [pendingEditTemplate, setPendingEditTemplate] = useState<Template | null>(null);
 
   // 标段筛选
   const [selectedBusinessSectorId, setSelectedBusinessSectorId] = useState('');
@@ -977,27 +973,12 @@ export default function TemplatePage() {
     setEditingTemplate(null);
   };
 
-  const openEditorChoice = (t: Template) => {
-    setPendingEditTemplate(t);
-    setEditorChoiceOpen(true);
-  };
-
-  const closeEditorChoice = () => {
-    setEditorChoiceOpen(false);
-    setPendingEditTemplate(null);
-  };
-
-  const selectEditor = (type: 'wps' | 'onlyoffice') => {
-    setEditorType(type);
-    setEditorChoiceOpen(false);
-    if (pendingEditTemplate) {
-      setEditingTemplate(pendingEditTemplate);
-    }
+  const openWpsEditor = (t: Template) => {
+    setEditingTemplate(t);
   };
 
   const handleCloseEditor = () => {
     setEditingTemplate(null);
-    setEditorType(null);
     setEditingTemplateFile(null);
   };
 
@@ -1194,31 +1175,21 @@ export default function TemplatePage() {
           tone: 'info' as const,
         };
 
+  if (editingTemplate) {
+    return (
+      <div className="fixed top-14 left-64 right-0 bottom-0 z-40 bg-white">
+        <WpsTemplateEditor
+          template={editingTemplate}
+          onBack={handleCloseEditor}
+          onSave={handleSaveTemplate}
+          initialFile={editingTemplateFile}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
-      {editingTemplate && editorType === 'wps' && (
-        <ModalOverlay className="!p-0" zClassName="z-50">
-          <div className="w-full min-h-screen bg-white">
-          <WpsTemplateEditor
-            template={editingTemplate}
-            onBack={handleCloseEditor}
-            onSave={handleSaveTemplate}
-            initialFile={editingTemplateFile}
-          />
-          </div>
-        </ModalOverlay>
-      )}
-      {editingTemplate && editorType === 'onlyoffice' && (
-        <ModalOverlay className="!p-0" zClassName="z-50">
-          <div className="w-full min-h-screen bg-white">
-          <OnlyOfficeTemplateEditor
-            template={editingTemplate}
-            onBack={handleCloseEditor}
-            onSave={handleSaveTemplate}
-          />
-          </div>
-        </ModalOverlay>
-      )}
       {/* 页面说明（标题由 MainLayout 顶栏展示，此处不重复） */}
       <p className={systemUi.pageDesc}>基于框架生成范本，编辑内容并预留变量</p>
 
@@ -1600,7 +1571,7 @@ export default function TemplatePage() {
                   <td className={`${systemUi.tableTdMuted} whitespace-nowrap tabular-nums`}>{t.updatedAt}</td>
                   <td className={systemUi.tableTd}>
                     <div className="flex items-center gap-0.5">
-                      <button className="p-1.5 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-700 transition-colors cursor-pointer" title="编辑" onClick={() => openEditorChoice(t)}>
+                      <button className="p-1.5 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-700 transition-colors cursor-pointer" title="编辑" onClick={() => openWpsEditor(t)}>
                         <Edit2 className="w-3.5 h-3.5" />
                       </button>
                       <button
@@ -1872,7 +1843,7 @@ export default function TemplatePage() {
           fallbackVersion={importFallbackVersion}
           onClose={() => setShowImportModal(false)}
           onBack={() => { setShowImportModal(false); setShowImportMetaModal(true); }}
-          onImported={(tpl, file) => { setShowImportModal(false); setEditingTemplateFile(file); openEditorChoice(tpl); }}
+          onImported={(tpl, file) => { setShowImportModal(false); setEditingTemplateFile(file); openWpsEditor(tpl); }}
         />
       )}
 
@@ -1960,63 +1931,6 @@ export default function TemplatePage() {
         </ModalOverlay>
       )}
 
-      {/* 编辑器选择弹窗 */}
-      {editorChoiceOpen && pendingEditTemplate && (
-        <ModalOverlay>
-          <div className="bg-white rounded-xl shadow-lg w-[440px] max-w-[90vw] overflow-hidden">
-            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-              <h3 className="text-base font-semibold text-slate-800">选择编辑器</h3>
-              <button onClick={closeEditorChoice} className="text-slate-400 hover:text-slate-600">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="p-5 space-y-3">
-              <p className="text-sm text-slate-500">
-                请选择用于编辑「{pendingEditTemplate.name}」的编辑器：
-              </p>
-              <div
-                onClick={() => selectEditor('wps')}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') selectEditor('wps'); }}
-                className="w-full flex items-center gap-4 p-4 border border-slate-200 rounded-xl hover:border-blue-400 hover:bg-blue-50/40 transition-all text-left group cursor-pointer"
-              >
-                <div className="w-10 h-10 rounded-lg bg-red-50 flex items-center justify-center shrink-0">
-                  <svg className="w-5 h-5 text-red-500" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M2 3h8a1 1 0 011 1v16a1 1 0 01-1 1H2a1 1 0 01-1-1V4a1 1 0 011-1zm11.5 0h8a1 1 0 011 1v16a1 1 0 01-1 1h-8a1 1 0 01-1-1V4a1 1 0 011-1z"/>
-                  </svg>
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-slate-800 group-hover:text-blue-700">金山 WPS WebOffice</p>
-                  <p className="text-xs text-slate-400 mt-0.5">国产 office 套件，深度兼容中文排版</p>
-                </div>
-                <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-blue-400 shrink-0 ml-auto" />
-              </div>
-              <div
-                onClick={() => selectEditor('onlyoffice')}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') selectEditor('onlyoffice'); }}
-                className="w-full flex items-center gap-4 p-4 border border-slate-200 rounded-xl hover:border-blue-400 hover:bg-blue-50/40 transition-all text-left group cursor-pointer"
-              >
-                <div className="w-10 h-10 rounded-lg bg-orange-50 flex items-center justify-center shrink-0">
-                  <svg className="w-5 h-5 text-orange-500" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zm4 18H6V4h7v5h5v11z"/>
-                  </svg>
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-slate-800 group-hover:text-blue-700">OnlyOffice</p>
-                  <p className="text-xs text-slate-400 mt-0.5">开源文档编辑器，本地部署测试</p>
-                </div>
-                <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-blue-400 shrink-0 ml-auto" />
-              </div>
-            </div>
-            <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 text-center">
-              <p className="text-xs text-slate-400">可在环境变量中设置默认编辑器，跳过此弹窗</p>
-            </div>
-          </div>
-        </ModalOverlay>
-      )}
     </div>
   );
 }

@@ -1081,7 +1081,7 @@ export function WpsTemplateEditor({ template, onBack, onSave, initialFile }: Wps
   }, [initialFile, template.id, template.name, template.sections, template.frameworkId]);
 
   return (
-    <div className="h-screen flex flex-col bg-gray-50">
+    <div className="h-full flex flex-col bg-gray-50">
       <div className="shrink-0 min-h-14 py-2 bg-white border-b border-slate-200 flex items-center justify-between px-4 gap-3">
         <div className="flex items-center gap-3 min-w-0 flex-1">
           <button type="button" onClick={onBack} className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors shrink-0">
