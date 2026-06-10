@@ -993,7 +993,17 @@ export function WpsTemplateEditor({ template, onBack, onSave, initialFile }: Wps
           );
         }
 
-        await loadWebOfficeSdk(init.sdkUrl);
+        const appId = init.appId?.trim();
+        const fileId = init.fileId?.trim();
+        if (!appId || !fileId) {
+          throw new Error('金山 WebOffice 初始化参数不完整（缺少 appId 或 fileId）');
+        }
+
+        const sdkUrl = init.sdkUrl.startsWith('http')
+          ? init.sdkUrl
+          : new URL(init.sdkUrl, window.location.origin).href;
+
+        await loadWebOfficeSdk(sdkUrl);
 
         if (disposed) {
           return;
@@ -1023,17 +1033,38 @@ export function WpsTemplateEditor({ template, onBack, onSave, initialFile }: Wps
         const OT = SDK.OfficeType as Record<string, string> | undefined;
         const officeType =
           init.officeType || OT?.Writer || OT?.w || 'w';
-        const instance = SDK.init({
-          mount: mountNode,
-          officeType,
-          appId: init.appId,
-          fileId: init.fileId,
-          ...(init.token ? { token: init.token } : {}),
-          ...(init.endpoint ? { endpoint: init.endpoint } : {}),
-          isListenResize: true,
-        });
+
+        let instance: WebOfficeSdkInstance;
+        try {
+          instance = SDK.init({
+            mount: mountNode,
+            officeType,
+            appId,
+            fileId,
+            endpoint: init.endpoint || 'https://o.wpsgo.com',
+            ...(init.token ? { token: init.token } : {}),
+            isListenResize: true,
+          }) as WebOfficeSdkInstance;
+        } catch (initErr) {
+          const msg = initErr instanceof Error ? initErr.message : String(initErr);
+          throw new Error(`金山 WebOffice SDK 初始化失败：${msg}`);
+        }
+
+        if (!instance) {
+          throw new Error('金山 WebOffice SDK 初始化失败：未返回实例');
+        }
 
         editorInstanceRef.current = instance;
+
+        instance.on?.('fileOpen', (ev: unknown) => {
+          const data = ev as { status?: number; message?: string } | undefined;
+          if (data && typeof data.status === 'number' && data.status !== 0) {
+            setOoConnectionHint(
+              data.message ||
+                '文档打开失败。请确认 WPS 控制台回调已调试通过，且 WPS_CALLBACK_PUBLIC_BASE_URL 与线上一致。',
+            );
+          }
+        });
 
         instance.on?.('error', (ev: unknown) => {
           console.warn('[WebOffice]', ev);

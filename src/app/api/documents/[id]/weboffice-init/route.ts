@@ -5,9 +5,10 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const { id } = await params;
   const sdkUrl =
     process.env.NEXT_PUBLIC_WPS_WEBOFFICE_SDK_URL?.trim() ||
-    '';
+    '/vendor/web-office-sdk-solution-v2.0.7.umd.js';
   const appId = process.env.WPS_WEBOFFICE_APP_ID?.trim() ?? '';
-  const endpoint = process.env.WPS_WEBOFFICE_ENDPOINT?.trim();
+  const endpoint =
+    process.env.WPS_WEBOFFICE_ENDPOINT?.trim() || 'https://o.wpsgo.com';
   const token = process.env.WPS_WEBOFFICE_TOKEN?.trim();
   const callbackPublicBase = process.env.WPS_CALLBACK_PUBLIC_BASE_URL?.trim()?.replace(/\/$/, '') ?? '';
 
@@ -16,7 +17,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     appId,
     fileId: id,
     officeType: 'w',
-    ...(endpoint ? { endpoint } : {}),
+    endpoint,
     ...(token ? { token } : {}),
     /** 控制台「回调地址」填公网可访问的服务根；文档路径以 `/v3/3rd` 为后缀（见官方文档） */
     callbackGatewaySuffix: '/v3/3rd',
