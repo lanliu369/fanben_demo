@@ -440,13 +440,6 @@ export function WpsTemplateEditor({ template, onBack, onSave, initialFile }: Wps
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅切换范本 id 时重置本地版本号，避免编辑中途随 props 抖动
   }, [template.id]);
 
-  /** 文本 Tab 快捷插入：优先本范本自定义，再补未重复的通用变量 */
-  const quickPickVariables = useMemo(() => {
-    const custom = editorVariables;
-    const rest = globalVariableCatalog.filter((g) => !custom.some((c) => c.key === g.key));
-    return [...custom, ...rest].slice(0, 8);
-  }, [editorVariables, globalVariableCatalog]);
-
   useEffect(() => {
     setResourceFilterQuery('');
   }, [activeSystemTab]);
@@ -1471,25 +1464,6 @@ export function WpsTemplateEditor({ template, onBack, onSave, initialFile }: Wps
               <div className="text-xs text-slate-400">暂无内容</div>
             )}
 
-            {activeSystemTab === 'text' && quickPickVariables.length > 0 && (
-              <div className="pt-1">
-                <div className="text-[11px] text-slate-400 mb-1">可用变量（通用 + 本范本自定义）</div>
-                <div className="flex flex-wrap gap-1">
-                  {quickPickVariables.slice(0, 4).map((variable) => (
-                    <button
-                      key={`var-demo-${variable.id}`}
-                      onClick={() => void insertVariableAtCursor(variable)}
-                      className="px-2 py-0.5 text-[11px] rounded border border-slate-200 text-slate-600 hover:bg-slate-50"
-                    >
-                      {variable.name}
-                    </button>
-                  ))}
-                </div>
-                {insertHint && (
-                  <div className="mt-1 text-[11px] text-slate-500 leading-relaxed">{insertHint}</div>
-                )}
-              </div>
-            )}
             </div>
           </div>
         </aside>
