@@ -11,7 +11,10 @@ FROM base AS builder
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN npm run build
+ENV NODE_OPTIONS=--max-old-space-size=2048
+RUN npm run build \
+  && test -d .next/static/chunks \
+  && test -f .next/standalone/server.js
 
 FROM base AS runner
 ENV NODE_ENV=production

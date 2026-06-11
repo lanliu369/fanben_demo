@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { GlobalLoadingProvider } from "@/components/ui/GlobalLoading";
+import { ChunkLoadRecovery } from "@/components/ui/ChunkLoadRecovery";
 
 export const metadata: Metadata = {
   title: "招标文件范本编制工具平台",
@@ -15,7 +16,10 @@ export default function RootLayout({
   return (
     <html lang="zh-CN" className="h-full">
       <body className="min-h-full bg-gray-50 antialiased">
-        <GlobalLoadingProvider>{children}</GlobalLoadingProvider>
+        <GlobalLoadingProvider>
+          <ChunkLoadRecovery />
+          {children}
+        </GlobalLoadingProvider>
       </body>
     </html>
   );
