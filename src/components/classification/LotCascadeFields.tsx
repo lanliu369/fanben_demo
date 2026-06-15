@@ -3,55 +3,27 @@
 import { useMemo } from 'react';
 import type { ClassificationStore } from '@/types';
 import { DOMAIN_LEVEL_NONE_NAV_ID } from '@/lib/classification/constants';
+import {
+  emptyLotCascade,
+  lotCascadeFromLotId,
+  type LotCascadeValue,
+} from '@/lib/classification/lot-cascade';
 import { getClassificationStore } from '@/lib/classification/storage';
 import { FormSelect } from '@/components/ui/FormSelect';
 
-export type LotCascadeValue = {
-  businessSectorId: string;
-  energyType: string;
-  businessStage: string;
-  businessNature: string;
-  /** 三级：系统/专业/阶段；无归属标段为 DOMAIN_LEVEL_NONE_NAV_ID */
-  domainLevelId: string;
-  lotLevelId: string;
-};
-
-export function emptyLotCascade(): LotCascadeValue {
-  return {
-    businessSectorId: '',
-    energyType: '',
-    businessStage: '',
-    businessNature: '',
-    domainLevelId: '',
-    lotLevelId: '',
-  };
-}
-
-export function lotCascadeFromLotId(
-  store: ClassificationStore,
-  lotLevelId: string,
-): LotCascadeValue {
-  const lot = store.lotLevels.find((l) => l.id === lotLevelId);
-  if (!lot) return emptyLotCascade();
-  const bt = store.businessTypes.find((b) => b.id === lot.businessTypeId);
-  return {
-    businessSectorId: lot.businessSectorId,
-    energyType: bt?.energyType ?? '',
-    businessStage: bt?.businessStage ?? '',
-    businessNature: bt?.businessNature ?? '',
-    domainLevelId: lot.domainLevelId ?? DOMAIN_LEVEL_NONE_NAV_ID,
-    lotLevelId: lot.id,
-  };
-}
+export type { LotCascadeValue };
+export { emptyLotCascade, lotCascadeFromLotId };
 
 type Props = {
   value: LotCascadeValue;
   onChange: (value: LotCascadeValue) => void;
   store?: ClassificationStore;
   required?: boolean;
+  /** 隐藏标段单选（改由 LotLevelMultiSelect 承担） */
+  hideLotLevel?: boolean;
 };
 
-export function LotCascadeFields({ value, onChange, store: storeProp, required }: Props) {
+export function LotCascadeFields({ value, onChange, store: storeProp, required, hideLotLevel }: Props) {
   const store = useMemo(() => storeProp ?? getClassificationStore(), [storeProp]);
 
   // 根据业务板块过滤
@@ -247,23 +219,25 @@ export function LotCascadeFields({ value, onChange, store: storeProp, required }
           )}
         </FormSelect>
       </div>
-      <div>
-        <label className="block text-xs font-medium text-slate-600 mb-1.5">
-          标段级别 {required && <span className="text-rose-500">*</span>}
-        </label>
-        <FormSelect
-          value={value.lotLevelId}
-          onChange={(e) => onChange({ ...value, lotLevelId: e.target.value })}
-          disabled={lotSelectDisabled}
-        >
-          <option value="">请选择</option>
-          {lots.map((lot) => (
-            <option key={lot.id} value={lot.id}>
-              {lot.name}
-            </option>
-          ))}
-        </FormSelect>
-      </div>
+      {!hideLotLevel && (
+        <div>
+          <label className="block text-xs font-medium text-slate-600 mb-1.5">
+            标段级别 {required && <span className="text-rose-500">*</span>}
+          </label>
+          <FormSelect
+            value={value.lotLevelId}
+            onChange={(e) => onChange({ ...value, lotLevelId: e.target.value })}
+            disabled={lotSelectDisabled}
+          >
+            <option value="">请选择</option>
+            {lots.map((lot) => (
+              <option key={lot.id} value={lot.id}>
+                {lot.name}
+              </option>
+            ))}
+          </FormSelect>
+        </div>
+      )}
     </div>
   );
 }

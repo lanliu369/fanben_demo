@@ -37,7 +37,7 @@ interface TabItem {
 
 const tabs: TabItem[] = [
   { key: 'dashboard', label: '数据看板', icon: <LayoutDashboard className="w-4 h-4" /> },
-  { key: 'category', label: '招采分类', icon: <FolderTree className="w-4 h-4" /> },
+  { key: 'category', label: '品类管理', icon: <FolderTree className="w-4 h-4" /> },
   { key: 'text', label: '文本管理', icon: <AlignLeft className="w-4 h-4" /> },
   { key: 'qualification', label: '资格条件管理', icon: <ShieldCheck className="w-4 h-4" /> },
   { key: 'evaluation', label: '评标办法管理', icon: <Gavel className="w-4 h-4" /> },

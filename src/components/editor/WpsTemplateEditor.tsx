@@ -6,7 +6,7 @@ import { asBlob } from 'html-docx-js-typescript';
 import type { Template, TemplateSection, TemplateVariable, TextBinding, TextFragment } from '@/types';
 import { getGlobalTemplateVariables, getMockTextFragments } from '@/lib/mockData';
 import { resolveTemplateLotLevelId } from '@/lib/classification';
-import { textFragmentAppliesToTemplateLot } from '@/lib/textFragmentLotScope';
+import { textFragmentAppliesToTemplate } from '@/lib/textFragmentLotScope';
 import { sortByCreatedAtDesc } from '@/lib/sortByCreatedAtDesc';
 import { applyCanonicalResourceBodiesToSections, buildSectionsHtmlWithResources } from '@/lib/resolveTemplateSectionHtml';
 import { expandNestedResourceEmbeds } from '@/lib/resourceEmbedHtml';
@@ -224,13 +224,13 @@ type ResourceTextCard = {
  *    - 资格条件 → `qualification`
  *    - 评标办法 → `evaluation`
  *    - 合同条款 → `contract-clause`
- *    在 1）得到的集合上按 `module` 过滤；同一 Tab 内优先列出已关联，若无则退化为该 Tab 下的资源池。
+ *    在 1）得到的集合上按 `module` 过滤；同一 Tab 内合并「已关联」与「资源池」（与资源管理列表一致）。
  */
 
 /** 已与本范本关联、且标段适用的文本资源（绑定 + 章节引用） */
 function collectTemplateLinkedTextCards(template: Template, fragments: TextFragment[]) {
   return fragments
-    .filter((frag) => textFragmentAppliesToTemplateLot(frag, resolveTemplateLotLevelId(template)))
+    .filter((frag) => textFragmentAppliesToTemplate(frag, template))
     .map((frag) => {
       const fromBindings = (frag.bindings ?? []).filter((b) => bindingAppliesToTemplate(b, template));
       const fromSections = getSectionTitlesForFragmentInTemplate(template.sections, frag.id);
@@ -260,7 +260,7 @@ function collectTemplateLinkedTextCards(template: Template, fragments: TextFragm
 /** 标段适用但未绑定本范本的资源池（避免侧栏空白；插入后可再在资源管理绑定） */
 function collectTemplateFallbackTextCards(template: Template, fragments: TextFragment[]): ResourceTextCard[] {
   return fragments
-    .filter((frag) => textFragmentAppliesToTemplateLot(frag, resolveTemplateLotLevelId(template)))
+    .filter((frag) => textFragmentAppliesToTemplate(frag, template))
     .map((frag) => {
       const linkedByBinding = (frag.bindings ?? []).some((b) => bindingAppliesToTemplate(b, template));
       const linkedBySection = getSectionTitlesForFragmentInTemplate(template.sections, frag.id).length > 0;
@@ -836,8 +836,12 @@ export function WpsTemplateEditor({ template, onBack, onSave, initialFile }: Wps
     return fallbackTextCards.filter((it) => it.module === m);
   }, [fallbackTextCards, activeSystemTab]);
 
-  /** 同一 Tab：优先已关联；若无则展示该 Tab 资源池 */
-  const displayedResourceItems = tabResourceItems.length > 0 ? tabResourceItems : fallbackTabResourceItems;
+  /** 同一 Tab：已关联 + 未绑定资源池合并展示（与资源管理各模块列表一致，不因存在绑定而隐藏其余条目） */
+  const displayedResourceItems = useMemo(() => {
+    const linkedIds = new Set(tabResourceItems.map((item) => item.id));
+    const pool = fallbackTabResourceItems.filter((item) => !linkedIds.has(item.id));
+    return [...tabResourceItems, ...pool];
+  }, [tabResourceItems, fallbackTabResourceItems]);
   const filteredResourceItems = useMemo(() => {
     const q = resourceFilterQuery.trim().toLowerCase();
     if (!q) {

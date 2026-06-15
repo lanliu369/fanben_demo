@@ -5,7 +5,7 @@ import { ArrowLeft, Bot, Edit2, FileCheck, FilePlus2, FileText, Loader2, Plus, S
 import type { Template, TemplateSection, TemplateVariable, TextBinding, TextFragment } from '@/types';
 import { getGlobalTemplateVariables, getMockTextFragments } from '@/lib/mockData';
 import { resolveTemplateLotLevelId } from '@/lib/classification';
-import { textFragmentAppliesToTemplateLot } from '@/lib/textFragmentLotScope';
+import { textFragmentAppliesToTemplate } from '@/lib/textFragmentLotScope';
 import { sortByCreatedAtDesc } from '@/lib/sortByCreatedAtDesc';
 import { expandNestedResourceEmbeds } from '@/lib/resourceEmbedHtml';
 import { normalizePasteHtmlForWps } from '@/lib/wpsPasteHtmlNormalize';
@@ -164,7 +164,7 @@ function bindingAppliesToTemplate(b: TextBinding, tpl: Template): boolean {
 
 function collectTemplateLinkedTextCards(template: Template, fragments: TextFragment[]) {
   return fragments
-    .filter((frag) => textFragmentAppliesToTemplateLot(frag, resolveTemplateLotLevelId(template)))
+    .filter((frag) => textFragmentAppliesToTemplate(frag, template))
     .map((frag) => {
       const fromBindings = (frag.bindings ?? []).filter((b) => bindingAppliesToTemplate(b, template));
       const fromSections = getSectionTitlesForFragmentInTemplate(template.sections, frag.id);
@@ -191,7 +191,7 @@ function collectTemplateLinkedTextCards(template: Template, fragments: TextFragm
 
 function collectTemplateFallbackTextCards(template: Template, fragments: TextFragment[]): ResourceTextCard[] {
   return fragments
-    .filter((frag) => textFragmentAppliesToTemplateLot(frag, resolveTemplateLotLevelId(template)))
+    .filter((frag) => textFragmentAppliesToTemplate(frag, template))
     .map((frag) => {
       const linkedByBinding = (frag.bindings ?? []).some((b) => bindingAppliesToTemplate(b, template));
       const linkedBySection = getSectionTitlesForFragmentInTemplate(template.sections, frag.id).length > 0;
@@ -334,7 +334,11 @@ export function OnlyOfficeTemplateEditor({ template, onBack, onSave }: OnlyOffic
     return fallbackTextCards.filter((it) => it.module === m);
   }, [fallbackTextCards, activeSystemTab]);
 
-  const displayedResourceItems = tabResourceItems.length > 0 ? tabResourceItems : fallbackTabResourceItems;
+  const displayedResourceItems = useMemo(() => {
+    const linkedIds = new Set(tabResourceItems.map((item) => item.id));
+    const pool = fallbackTabResourceItems.filter((item) => !linkedIds.has(item.id));
+    return [...tabResourceItems, ...pool];
+  }, [tabResourceItems, fallbackTabResourceItems]);
 
   const filteredResourceItems = useMemo(() => {
     const q = resourceFilterQuery.trim().toLowerCase();

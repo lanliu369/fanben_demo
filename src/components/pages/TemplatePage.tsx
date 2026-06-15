@@ -25,6 +25,11 @@ import {
   lotCascadeFromLotId,
   type LotCascadeValue,
 } from '@/components/classification/LotCascadeFields';
+import {
+  TemplateLotMetaFields,
+  emptyTemplateLotMeta,
+  type TemplateLotMetaValue,
+} from '@/components/classification/TemplateLotMetaFields';
 import { appendDataAudit, getMockActor, getTemplateAuditLogs } from '@/lib/dataAudit';
 import { OperationLogDialog } from '@/components/ui/OperationLogDialog';
 import { systemUi } from '@/lib/systemUi';
@@ -501,6 +506,11 @@ function buildSections(frameworkId: string, progress: number): TemplateSection[]
   return fw.chapters.filter((ch) => ch.level === 1).map(mapChapter);
 }
 
+function suggestVersionForLot(templates: Template[], lotLevelId: string): string {
+  const n = templates.filter((t) => t.lotLevelId === lotLevelId && !t.deletedAt).length;
+  return `V${n + 1}.0`;
+}
+
 function makeTpl(
   id: string,
   name: string,
@@ -633,18 +643,9 @@ export default function TemplatePage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showImportMetaModal, setShowImportMetaModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
-  const [importMeta, setImportMeta] = useState({
-    ...emptyLotCascade(),
-    name: '',
-    description: '',
-    version: '',
-  });
+  const [importMeta, setImportMeta] = useState<TemplateLotMetaValue>(emptyTemplateLotMeta);
 
-  // 新建范本表单
-  const [createCascade, setCreateCascade] = useState<LotCascadeValue>(emptyLotCascade);
-  const [createName, setCreateName] = useState('');
-  const [createDesc, setCreateDesc] = useState('');
-  const [createVersion, setCreateVersion] = useState('');
+  const [createMeta, setCreateMeta] = useState<TemplateLotMetaValue>(emptyTemplateLotMeta);
 
   /** 一键复制：先填标段 / 名称与描述，再生成副本 */
   const [duplicateSourceId, setDuplicateSourceId] = useState<string | null>(null);
@@ -989,21 +990,21 @@ export default function TemplatePage() {
     setEditingTemplateFile(null);
   };
 
-  const suggestedCreateVersion = useMemo(() => {
-    if (!createCascade.lotLevelId) return 'V1.0';
-    const n = templates.filter(
-      (t) => t.lotLevelId === createCascade.lotLevelId && !t.deletedAt,
-    ).length;
-    return `V${n + 1}.0`;
-  }, [createCascade.lotLevelId, templates]);
+  const createVersionPlaceholder = useMemo(() => {
+    if (createMeta.lotLevelIds.length === 0) return 'V1.0';
+    if (createMeta.lotLevelIds.length === 1) {
+      return suggestVersionForLot(templates, createMeta.lotLevelIds[0]);
+    }
+    return '留空则各标段分别递增版本号';
+  }, [createMeta.lotLevelIds, templates]);
 
-  const importFallbackVersion = useMemo(() => {
-    if (!importMeta.lotLevelId) return 'V1.0';
-    const n = templates.filter(
-      (t) => t.lotLevelId === importMeta.lotLevelId && !t.deletedAt,
-    ).length;
-    return `V${n + 1}.0`;
-  }, [importMeta.lotLevelId, templates]);
+  const importVersionPlaceholder = useMemo(() => {
+    if (importMeta.lotLevelIds.length === 0) return 'V1.0';
+    if (importMeta.lotLevelIds.length === 1) {
+      return suggestVersionForLot(templates, importMeta.lotLevelIds[0]);
+    }
+    return '留空则各标段分别递增版本号';
+  }, [importMeta.lotLevelIds, templates]);
 
   const suggestedDupVersion = useMemo(() => {
     if (!dupCascade.lotLevelId) return 'V1.0';
@@ -1014,37 +1015,46 @@ export default function TemplatePage() {
   }, [dupCascade.lotLevelId, templates]);
 
   const handleCreate = () => {
-    if (!createCascade.lotLevelId || !createName.trim()) return;
-    const nextVersion = createVersion.trim() || suggestedCreateVersion;
-    const newTpl = makeTpl(
-      `tpl-${Date.now()}`,
-      createName,
-      createCascade.lotLevelId,
-      FW_MANUAL,
-      nextVersion,
-      'draft',
-      0,
-      new Date().toISOString().split('T')[0],
-      new Date().toISOString().split('T')[0],
-      createDesc,
+    const lotIds = createMeta.lotLevelIds;
+    if (lotIds.length === 0 || !createMeta.name.trim()) return;
+    const now = new Date().toISOString().split('T')[0];
+    const baseTs = Date.now();
+    const newTemplates = lotIds.map((lotLevelId, index) =>
+      makeTpl(
+        `tpl-${baseTs}-${index}`,
+        createMeta.name.trim(),
+        lotLevelId,
+        FW_MANUAL,
+        createMeta.version.trim() || suggestVersionForLot(templates, lotLevelId),
+        'draft',
+        0,
+        now,
+        now,
+        createMeta.description,
+      ),
     );
     setTemplates((prev) => {
-      const next = [...prev, newTpl];
+      const next = [...prev, ...newTemplates];
       setMockTemplates(next);
-      appendDataAudit({
-        scope: 'template',
-        action: 'create',
-        entityId: newTpl.id,
-        label: newTpl.name,
-        actor: getMockActor(),
-      });
+      for (const tpl of newTemplates) {
+        appendDataAudit({
+          scope: 'template',
+          action: 'create',
+          entityId: tpl.id,
+          label: tpl.name,
+          detail: tpl.lotLevelName ? `标段：${tpl.lotLevelName}` : undefined,
+          actor: getMockActor(),
+        });
+      }
       return next;
     });
     setShowCreateModal(false);
-    setCreateCascade(emptyLotCascade());
-    setCreateName('');
-    setCreateDesc('');
-    setCreateVersion('');
+    setCreateMeta(emptyTemplateLotMeta());
+    setSystemNotice(
+      newTemplates.length > 1
+        ? `已生成 ${newTemplates.length} 个范本`
+        : '已生成范本',
+    );
   };
 
   const openDuplicateModal = (t: Template) => {
@@ -1484,22 +1494,17 @@ export default function TemplatePage() {
         <div className="flex items-center gap-2">
           <button
             onClick={() => {
-              setImportMeta({
-                ...emptyLotCascade(),
-                name: '',
-                description: '',
-                version: '',
-              });
+              setImportMeta(emptyTemplateLotMeta());
               setShowImportMetaModal(true);
             }}
             className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 bg-white text-slate-700 text-sm rounded-lg hover:bg-slate-50 transition-colors"
           >
             <Upload className="w-4 h-4" />
-            导入文档
+            导入范本
           </button>
           <button
             onClick={() => {
-              setCreateVersion('');
+              setCreateMeta(emptyTemplateLotMeta());
               setShowCreateModal(true);
             }}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors"
@@ -1684,51 +1689,31 @@ export default function TemplatePage() {
           <div className={systemUi.modalPanel} style={{ width: '56rem', maxWidth: 'calc(100vw - 2rem)' }}>
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
               <h3 className="text-base font-semibold text-slate-900">新建范本</h3>
-              <button onClick={() => { setCreateVersion(''); setShowCreateModal(false); }} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
+              <button onClick={() => { setShowCreateModal(false); }} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
             </div>
-            <div className="p-6 space-y-4">
-              <LotCascadeFields
-                value={createCascade}
-                onChange={setCreateCascade}
+            <div className="p-6">
+              <TemplateLotMetaFields
+                value={createMeta}
+                onChange={setCreateMeta}
                 store={classificationStore}
-                required
+                versionPlaceholder={createVersionPlaceholder}
               />
-
-              {createCascade.lotLevelId && (
-                <p className="text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
+              {createMeta.lotLevelIds.length > 0 && (
+                <p className="text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2 mt-4">
                   生成后进入编辑器，通过标题与正文<strong className="font-medium text-slate-700">手动搭建</strong>章节结构；保存时会同步到范本大纲（供资源绑定勾选）。
                 </p>
               )}
-
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1.5">范本名称 <span className="text-rose-500">*</span></label>
-                <input type="text" value={createName} onChange={e => setCreateName(e.target.value)}
-                  placeholder="请输入范本名称"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1.5">版本号</label>
-                <input
-                  type="text"
-                  value={createVersion}
-                  onChange={(e) => setCreateVersion(e.target.value)}
-                  placeholder={createCascade.lotLevelId ? '如 V1.0' : '请先选择标段'}
-                  disabled={!createCascade.lotLevelId}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 disabled:opacity-50"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1.5">范本描述</label>
-                <textarea value={createDesc} onChange={e => setCreateDesc(e.target.value)}
-                  placeholder="请输入范本描述" rows={2}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-none" />
-              </div>
             </div>
             <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-200 bg-slate-50">
-              <button onClick={() => { setCreateVersion(''); setShowCreateModal(false); }} className="px-4 py-2 text-sm text-slate-600 border border-slate-200 bg-white rounded-lg hover:bg-slate-50 transition-colors">取消</button>
-              <button onClick={handleCreate} disabled={!createCascade.lotLevelId || !createName.trim()}
-                className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                生成范本
+              <button onClick={() => setShowCreateModal(false)} className="px-4 py-2 text-sm text-slate-600 border border-slate-200 bg-white rounded-lg hover:bg-slate-50 transition-colors">取消</button>
+              <button
+                onClick={handleCreate}
+                disabled={createMeta.lotLevelIds.length === 0 || !createMeta.name.trim()}
+                className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {createMeta.lotLevelIds.length > 1
+                  ? `生成 ${createMeta.lotLevelIds.length} 个范本`
+                  : '生成范本'}
               </button>
             </div>
           </div>
@@ -1834,7 +1819,7 @@ export default function TemplatePage() {
       {showImportMetaModal && (
         <ImportMetaModal
           meta={importMeta}
-          versionPlaceholder={importFallbackVersion}
+          versionPlaceholder={importVersionPlaceholder}
           onChange={setImportMeta}
           onClose={() => setShowImportMetaModal(false)}
           onNext={() => { setShowImportMetaModal(false); setShowImportModal(true); }}
@@ -1845,10 +1830,34 @@ export default function TemplatePage() {
       {showImportModal && (
         <ImportDocumentModal
           meta={importMeta}
-          fallbackVersion={importFallbackVersion}
+          templates={templates}
           onClose={() => setShowImportModal(false)}
           onBack={() => { setShowImportModal(false); setShowImportMetaModal(true); }}
-          onImported={(tpl, file) => { setShowImportModal(false); setEditingTemplateFile(file); openWpsEditor(tpl); }}
+          onImported={(imported, file) => {
+            setShowImportModal(false);
+            setTemplates((prev) => {
+              const next = [...prev, ...imported];
+              setMockTemplates(next);
+              for (const tpl of imported) {
+                appendDataAudit({
+                  scope: 'template',
+                  action: 'create',
+                  entityId: tpl.id,
+                  label: tpl.name,
+                  detail: tpl.lotLevelName ? `导入生成 · ${tpl.lotLevelName}` : '导入生成',
+                  actor: getMockActor(),
+                });
+              }
+              return next;
+            });
+            if (imported.length > 0) {
+              setEditingTemplateFile(file);
+              openWpsEditor(imported[0]);
+            }
+            if (imported.length > 1) {
+              setSystemNotice(`已导入并生成 ${imported.length} 个范本，当前打开第 1 个`);
+            }
+          }}
         />
       )}
 
@@ -1942,61 +1951,32 @@ export default function TemplatePage() {
 
 // ─── 导入文档元信息弹窗 ─────────────────────────────────────────────────────────
 
-type TemplateImportMeta = LotCascadeValue & {
-  name: string;
-  description: string;
-  version: string;
-};
-
 interface ImportMetaModalProps {
-  meta: TemplateImportMeta;
-  /** 未填写版本号时用于占位与说明（随所选标段变化） */
+  meta: TemplateLotMetaValue;
   versionPlaceholder: string;
-  onChange: (meta: TemplateImportMeta) => void;
+  onChange: (meta: TemplateLotMetaValue) => void;
   onClose: () => void;
   onNext: () => void;
 }
 
 function ImportMetaModal({ meta, versionPlaceholder, onChange, onClose, onNext }: ImportMetaModalProps) {
-  const canNext = meta.lotLevelId.trim() && meta.name.trim();
+  const store = useMemo(() => getClassificationStore(), []);
+  const canNext = meta.lotLevelIds.length > 0 && meta.name.trim();
 
   return (
     <ModalOverlay>
       <div className={`${systemUi.modalPanel} flex flex-col max-h-[90vh]`}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
-          <h3 className="text-base font-semibold text-slate-900">新建范本</h3>
+          <h3 className="text-base font-semibold text-slate-900">导入范本</h3>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
         </div>
-        <div className="p-6 space-y-4 overflow-y-auto">
-          <LotCascadeFields
+        <div className="p-6 overflow-y-auto">
+          <TemplateLotMetaFields
             value={meta}
-            onChange={(v) => onChange({ ...meta, ...v })}
-            required
+            onChange={onChange}
+            store={store}
+            versionPlaceholder={versionPlaceholder}
           />
-
-          <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1.5">范本名称 <span className="text-rose-500">*</span></label>
-            <input type="text" value={meta.name} onChange={e => onChange({ ...meta, name: e.target.value })}
-              placeholder="请输入范本名称"
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1.5">范本描述</label>
-            <textarea value={meta.description} onChange={e => onChange({ ...meta, description: e.target.value })}
-              placeholder="请输入范本描述" rows={2}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-none" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1.5">版本号</label>
-            <input
-              type="text"
-              value={meta.version}
-              onChange={(e) => onChange({ ...meta, version: e.target.value })}
-              placeholder={meta.lotLevelId ? '如 V1.0' : '请先选择标段'}
-              disabled={!meta.lotLevelId}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 disabled:opacity-50"
-            />
-          </div>
         </div>
         <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-200 bg-slate-50">
           <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 border border-slate-200 bg-white rounded-lg hover:bg-slate-50 transition-colors">取消</button>
@@ -2005,7 +1985,7 @@ function ImportMetaModal({ meta, versionPlaceholder, onChange, onClose, onNext }
             disabled={!canNext}
             className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            继续解析
+            {meta.lotLevelIds.length > 1 ? '继续解析（将生成多个范本）' : '继续解析'}
           </button>
         </div>
       </div>
@@ -2016,15 +1996,14 @@ function ImportMetaModal({ meta, versionPlaceholder, onChange, onClose, onNext }
 // ─── 导入文档弹窗 ───────────────────────────────────────────────────────────────
 
 interface ImportDocumentModalProps {
-  meta: TemplateImportMeta;
-  /** 解析生成范本时，若 meta.version 为空则使用该版本号 */
-  fallbackVersion: string;
+  meta: TemplateLotMetaValue;
+  templates: Template[];
   onClose: () => void;
   onBack: () => void;
-  onImported: (template: Template, file: File | null) => void;
+  onImported: (templates: Template[], file: File | null) => void;
 }
 
-function ImportDocumentModal({ meta, fallbackVersion, onClose, onBack, onImported }: ImportDocumentModalProps) {
+function ImportDocumentModal({ meta, templates, onClose, onBack, onImported }: ImportDocumentModalProps) {
   const [file, setFile] = useState<File | null>(null);
   const [parsing, setParsing] = useState(false);
   const [error, setError] = useState('');
@@ -2150,25 +2129,34 @@ function ImportDocumentModal({ meta, fallbackVersion, onClose, onBack, onImporte
       }
     }
 
-    const path = getLotLevelPath(meta.lotLevelId);
-    const id = `import-${Date.now()}`;
-    const sections = parseSectionsFromHTML(html, id);
-    const importedTemplate: Template = {
-      id,
-      name: meta.name || file.name.replace(/\.[^.]+$/, ''),
-      description: meta.description || `由文档《${file.name}》导入生成`,
-      frameworkId: 'fw-default',
-      lotLevelId: meta.lotLevelId,
-      ...(path ? templateFieldsFromLotPath(path) : {}),
-      version: meta.version?.trim() || fallbackVersion,
-      status: 'draft',
-      editProgress: 100,
-      createdAt: new Date().toISOString().split('T')[0],
-      updatedAt: new Date().toISOString().split('T')[0],
-      sections,
-      variables: [],
-    };
-    onImported(importedTemplate, file);
+    const lotIds = meta.lotLevelIds.length > 0
+      ? meta.lotLevelIds
+      : (meta.lotLevelId ? [meta.lotLevelId] : []);
+    if (lotIds.length === 0) return;
+
+    const baseTs = Date.now();
+    const today = new Date().toISOString().split('T')[0];
+    const importedTemplates: Template[] = lotIds.map((lotLevelId, index) => {
+      const path = getLotLevelPath(lotLevelId);
+      const id = `import-${baseTs}-${index}`;
+      const sections = parseSectionsFromHTML(html, id);
+      return {
+        id,
+        name: meta.name || file.name.replace(/\.[^.]+$/, ''),
+        description: meta.description || `由文档《${file.name}》导入生成`,
+        frameworkId: 'fw-default',
+        lotLevelId,
+        ...(path ? templateFieldsFromLotPath(path) : {}),
+        version: meta.version?.trim() || suggestVersionForLot(templates, lotLevelId),
+        status: 'draft' as const,
+        editProgress: 100,
+        createdAt: today,
+        updatedAt: today,
+        sections,
+        variables: [],
+      };
+    });
+    onImported(importedTemplates, file);
   };
 
   return (

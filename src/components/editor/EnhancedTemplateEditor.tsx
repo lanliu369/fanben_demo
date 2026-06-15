@@ -8,8 +8,7 @@ import dynamic from 'next/dynamic';
 import type { Template, TemplateSection, OutlineItem } from '@/types';
 import type { RichEditorHandle } from '@/components/editor/RichEditor';
 import { getMockTextFragments } from '@/lib/mockData';
-import { resolveTemplateLotLevelId } from '@/lib/classification';
-import { textFragmentAppliesToTemplateLot } from '@/lib/textFragmentLotScope';
+import { textFragmentAppliesToTemplate } from '@/lib/textFragmentLotScope';
 import { sortByCreatedAtDesc } from '@/lib/sortByCreatedAtDesc';
 import type { PageMargins } from '@/lib/docxImport/enhancedDocxParser';
 import { DocumentModeSwitcher } from './DocumentModeSwitcher';
@@ -199,7 +198,7 @@ export function EnhancedTemplateEditor({ template, onBack, onSave, initialFile }
 
   const textFragments = useMemo(() => {
     const list = getMockTextFragments().filter((f) =>
-      textFragmentAppliesToTemplateLot(f, resolveTemplateLotLevelId(initialTemplate)),
+      textFragmentAppliesToTemplate(f, initialTemplate),
     );
     const filtered = !textFragmentSearch.trim()
       ? list
