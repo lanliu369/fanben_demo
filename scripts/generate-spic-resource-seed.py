@@ -184,12 +184,13 @@ def table_to_html(tbl: ET.Element) -> str:
 
 def classify(chapter: str | None, section: str, text: str, html: str) -> str:
     ch = chapter or ""
-    blob = f"{section} {text} {html}"
     if ch.startswith("第三章") or "第三章 评标办法" in ch:
         return "evaluation"
     if ch.startswith("第四章") or "第四章 合同条款" in ch:
         return "contract-clause"
-    if re.search(r"资格要求|资格审查", blob):
+    # 资格条件：仅第二章「1.4 投标人资格要求」整节（不按正文关键词误判）
+    sec = normalize_text(section)
+    if re.match(r"^1\.4(\s|$)", sec) or sec.startswith("1.4 投标人资格要求"):
         return "qualification"
     return "text"
 

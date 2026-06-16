@@ -37,7 +37,7 @@ const STORAGE_KEYS = {
 } as const;
 
 /** 资源种子版本：变更后浏览器自动重置为最新 Mock 数据 */
-const TEXT_FRAGMENTS_SEED_VERSION = 'spic-202603-section-merge-v2';
+const TEXT_FRAGMENTS_SEED_VERSION = 'spic-202603-section-merge-v3';
 
 const LEGACY_TEXT_FRAGMENTS_KEY = 'oo-text-fragments';
 
