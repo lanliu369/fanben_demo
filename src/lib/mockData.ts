@@ -37,21 +37,27 @@ const STORAGE_KEYS = {
 } as const;
 
 /** 资源种子版本：变更后浏览器自动重置为最新 Mock 数据 */
-const TEXT_FRAGMENTS_SEED_VERSION = 'spic-202603-section-merge';
+const TEXT_FRAGMENTS_SEED_VERSION = 'spic-202603-section-merge-v2';
+
+const LEGACY_TEXT_FRAGMENTS_KEY = 'oo-text-fragments';
 
 /** 现行种子条数（按节合并后约 77 条）；旧版「每段一条」缓存约 200～400 条 */
 const TEXT_FRAGMENTS_SEED_EXPECTED_COUNT = SPIC_DEVICE_PROCUREMENT_202603_RESOURCES.length;
 
-/** 检测浏览器里是否仍为旧版细粒度拆分缓存（强刷不会清除 localStorage） */
+function hasSpicSeedContent(stored: TextFragment[]): boolean {
+  return stored.some((f) => !f.deletedAt && f.id.startsWith('spic-202603-'));
+}
+
+/** 检测浏览器里是否仍为旧版/空缓存（强刷不会清除 localStorage） */
 function isStaleTextFragmentCache(storedVersion: string | null, stored: TextFragment[]): boolean {
   if (storedVersion !== TEXT_FRAGMENTS_SEED_VERSION) return true;
   const active = stored.filter((f) => !f.deletedAt);
+  if (!hasSpicSeedContent(stored)) return true;
   if (active.length > TEXT_FRAGMENTS_SEED_EXPECTED_COUNT + 40) return true;
   return active.some(
     (f) =>
-      // 旧版：重要提示各条单独成资源
-      (f.name.includes('第六章 投标文件格式｜4.请投标人仔细阅读'))
-      || (f.name.includes('第六章 投标文件格式｜3.【】里内容可删除'))
+      f.name.includes('第六章 投标文件格式｜4.请投标人仔细阅读')
+      || f.name.includes('第六章 投标文件格式｜3.【】里内容可删除')
       || f.name.includes('重要提示：'),
   );
 }
@@ -338,8 +344,13 @@ function loadTextFragmentsFromStorage(): TextFragment[] {
   try {
     const storedVersion = window.localStorage.getItem(STORAGE_KEYS.textFragmentsSeedVersion);
     const stored = readStorage(STORAGE_KEYS.textFragments, defaultTextFragments);
-    if (isStaleTextFragmentCache(storedVersion, stored)) {
+    const legacyExists = window.localStorage.getItem(LEGACY_TEXT_FRAGMENTS_KEY) !== null;
+    const shouldReset =
+      isStaleTextFragmentCache(storedVersion, stored)
+      || (legacyExists && !hasSpicSeedContent(stored));
+    if (shouldReset) {
       window.localStorage.removeItem(STORAGE_KEYS.textFragments);
+      window.localStorage.removeItem(LEGACY_TEXT_FRAGMENTS_KEY);
       window.localStorage.setItem(STORAGE_KEYS.textFragmentsSeedVersion, TEXT_FRAGMENTS_SEED_VERSION);
       writeStorage(STORAGE_KEYS.textFragments, defaultTextFragments);
       return deepClone(defaultTextFragments);

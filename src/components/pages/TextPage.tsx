@@ -19,7 +19,6 @@ import {
   Link2,
 } from 'lucide-react';
 import type { TextFragment, TextVersion } from '@/types';
-import { seedLotIds } from '@/lib/classification/seed-lot-ids';
 import {
   getMockTextFragments,
   setMockTextFragments,
@@ -83,72 +82,6 @@ function collectEligibleEmbedFragments(
   });
 }
 
-// ─── Mock 文本数据 ─────────────────────────────────────────────────────────────
-
-const mockTexts: TextFragment[] = [
-  {
-    id: 'txt-1',
-    name: '标准资格要求条款',
-    module: 'qualification',
-    content: '<h2>一、基本资格条件</h2><p>投标人应具备以下资格条件：</p><ol><li>具有独立法人资格；</li><li>具有良好的商业信誉和健全的财务会计制度；</li><li>具有履行合同所必需的设备和专业技术能力；</li><li>具有依法缴纳税收和社会保障资金的良好记录；</li><li>参加本次招标活动前三年内，在经营活动中没有重大违法记录。</li></ol>',
-    description: '适用于各类招标项目的通用资格要求',
-    createdAt: '2024-01-10',
-    updatedAt: '2024-03-15',
-    contentVersion: 2,
-    templateSyncedVersion: { 'tpl-1': 1 },
-    versions: [
-      {
-        content:
-          '<h2>一、基本资格条件</h2><p>投标人应具备以下资格条件：</p><ol><li>具有独立法人资格；</li><li>具有良好的商业信誉和健全的财务会计制度；</li><li>具有履行合同所必需的设备和专业技术能力；</li></ol>',
-        updatedAt: '2024-01-15',
-      },
-    ],
-    bindings: [
-      {
-        id: 'bind-1',
-        textFragmentId: 'txt-1',
-        templateId: 'tpl-1',
-        templateSectionId: 'sec-fw-1-ch-1-2',
-        templateName: '储能电站EPC招标范本',
-        sectionTitle: '1.2 资格要求',
-        order: 1,
-      },
-    ],
-  },
-  {
-    id: 'txt-2',
-    name: '投标文件密封要求',
-    module: 'text',
-    content:
-      '<h2>密封要求（修订版）</h2><p>投标文件应按以下要求密封：</p><ol><li>投标文件正本和副本应分别密封，并在封套上标明"正本"或"副本"字样；</li><li>封套上应注明招标项目名称、投标人名称和地址；</li><li>封套应加盖投标人公章；</li><li>未按要求密封的投标文件，招标人有权拒收；</li><li>电子投标文件应按要求进行加密上传。</li></ol>',
-    description: '投标文件密封的标准要求',
-    applicableToAllLotLevels: false,
-    applicableLotLevelIds: [seedLotIds.kxx],
-    createdAt: '2024-01-12',
-    updatedAt: '2024-04-18',
-    contentVersion: 1,
-    templateSyncedVersion: {},
-    versions: [
-      {
-        content:
-          '<h2>密封要求</h2><p>投标文件应按以下要求密封：</p><ol><li>投标文件正本和副本应分别密封；</li><li>封套上应注明招标项目名称、投标人名称和地址；</li></ol>',
-        updatedAt: '2024-01-18',
-      },
-    ],
-    bindings: [
-      {
-        id: 'bind-3',
-        textFragmentId: 'txt-2',
-        templateId: 'tpl-1',
-        templateSectionId: 'sec-fw-1-ch-2-2',
-        templateName: '储能电站EPC招标范本',
-        sectionTitle: '2.2 投标文件要求',
-        order: 1,
-      },
-    ],
-  },
-];
-
 // ─── 主页面 ───────────────────────────────────────────────────────────────────
 
 interface TextPageProps {
@@ -162,10 +95,11 @@ export default function TextPage({ moduleName = '文本', moduleKey = 'text', au
   /** 仅文本管理保留「资源插入」；其余资源模块不展示该能力 */
   const isTextModulePage = moduleKey === 'text';
 
-  const [allTexts, setAllTexts] = useState<TextFragment[]>(() => {
-    const stored = getMockTextFragments();
-    return stored.length > 0 ? stored : mockTexts;
-  });
+  const [allTexts, setAllTexts] = useState<TextFragment[]>(() => getMockTextFragments());
+
+  useEffect(() => {
+    setAllTexts(getMockTextFragments());
+  }, [moduleKey]);
   const [selectedText, setSelectedText] = useState<TextFragment | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
