@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect } from 'react';
 import {
-  Plus, Edit2, Trash2, FileText, Eye, Download, X, Upload,
+  Plus, Edit2, Trash2, FileText, Download, X, Upload,
   ChevronDown, ChevronUp, ChevronRight, Sparkles, Loader2,
   Send, Filter, CalendarDays, RotateCcw, ClipboardList, Copy, Settings,
 } from 'lucide-react';
@@ -52,25 +52,6 @@ function escapeHtml(str: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
-}
-
-function normalizeSectionPreviewHtml(content: string): string {
-  const raw = (content ?? '').trim();
-  if (!raw) {
-    return '';
-  }
-  // 已是 HTML
-  if (/<[^>]+>/.test(raw)) {
-    return raw;
-  }
-  // 兼容被编码过的 HTML（例如 &lt;p&gt;...）
-  const parser = new DOMParser();
-  const decoded = parser.parseFromString(raw, 'text/html').documentElement.textContent ?? raw;
-  if (/<[^>]+>/.test(decoded)) {
-    return decoded;
-  }
-  // 普通文本回退为段落
-  return `<p>${escapeHtml(raw).replace(/\n/g, '<br/>')}</p>`;
 }
 
 function createPageBreak(doc: Document): HTMLDivElement {
@@ -632,7 +613,6 @@ export default function TemplatePage() {
   const [pageSize, setPageSize] = useState(10);
 
   // 弹窗
-  const [previewTemplate, setPreviewTemplate] = useState<Template | null>(null);
   const [deleteTemplateId, setDeleteTemplateId] = useState<string | null>(null);
   /** 发布：用户确认后再执行状态变更 */
   const [templateActionConfirm, setTemplateActionConfirm] = useState<null | { type: 'publish'; id: string }>(
@@ -834,7 +814,6 @@ export default function TemplatePage() {
     const id = deleteTemplateId;
     softDeleteTemplate(id, getMockActor());
     setTemplates((prev) => prev.filter((t) => t.id !== id));
-    if (previewTemplate?.id === id) setPreviewTemplate(null);
     setDeleteTemplateId(null);
   };
 
@@ -1155,28 +1134,6 @@ export default function TemplatePage() {
     selectedLotLevelId &&
       classificationStore.lotLevels.find((l) => l.id === selectedLotLevelId)?.name,
   ].filter(Boolean) as string[];
-
-  const renderPreviewSections = (sections: TemplateSection[], depth = 0): React.ReactNode =>
-    sections.map((sec) => (
-      <div key={sec.id} className="space-y-2">
-        <div className="border-l-2 border-blue-200 pl-4">
-          <h4 className="text-sm font-semibold text-slate-800 mb-2">{sec.title}</h4>
-          {sec.content ? (
-            <div
-              className="text-sm text-slate-700 bg-slate-50 p-3 rounded-lg docx-preview"
-              dangerouslySetInnerHTML={{ __html: normalizeSectionPreviewHtml(sec.content) }}
-            />
-          ) : (
-            <div className="text-xs text-slate-400 italic bg-slate-50 p-3 rounded-lg">（暂无内容）</div>
-          )}
-        </div>
-        {sec.children?.length ? (
-          <div className={depth < 2 ? 'pl-4 space-y-3' : 'pl-3 space-y-2'}>
-            {renderPreviewSections(sec.children, depth + 1)}
-          </div>
-        ) : null}
-      </div>
-    ));
 
   const templateStatusConfirmName =
     templateActionConfirm !== null
@@ -1610,9 +1567,6 @@ export default function TemplatePage() {
                           <Send className="w-3.5 h-3.5" />
                         </button>
                       )}
-                      <button onClick={() => setPreviewTemplate(t)} className="p-1.5 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-700 transition-colors cursor-pointer" title="预览">
-                        <Eye className="w-3.5 h-3.5" />
-                      </button>
                       <button onClick={() => handleDownload(t)} className="p-1.5 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-700 transition-colors cursor-pointer" title="下载">
                         <Download className="w-3.5 h-3.5" />
                       </button>
@@ -1790,26 +1744,6 @@ export default function TemplatePage() {
               >
                 确定并生成副本
               </button>
-            </div>
-          </div>
-        </ModalOverlay>
-      )}
-
-      {/* 预览弹窗 */}
-      {previewTemplate && (
-        <ModalOverlay>
-          <div className={`${systemUi.modalPanel} max-h-[90vh] flex flex-col`}>
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
-              <div>
-                <h3 className="text-base font-semibold text-slate-900">{previewTemplate.name}</h3>
-                <p className="text-xs text-slate-500 mt-0.5">{previewTemplate.lotLevelName} · {previewTemplate.version}</p>
-              </div>
-              <button onClick={() => setPreviewTemplate(null)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-6">
-              <div className="space-y-6">
-                {renderPreviewSections(previewTemplate.sections)}
-              </div>
             </div>
           </div>
         </ModalOverlay>

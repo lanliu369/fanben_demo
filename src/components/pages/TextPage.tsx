@@ -184,6 +184,9 @@ export default function TextPage({ moduleName = '文本', moduleKey = 'text', au
   const [embedSelectedIds, setEmbedSelectedIds] = useState<Set<string>>(new Set());
   const [embedModuleFilter, setEmbedModuleFilter] = useState<EmbedModuleFilter>('all');
 
+  const [listPage, setListPage] = useState(1);
+  const [listPageSize, setListPageSize] = useState(10);
+
   const scopeInsertReady = applicableToAllLotLevels || applicableLotLevelIds.length > 0;
 
   const eligibleEmbedFragments = useMemo(() => {
@@ -295,6 +298,26 @@ export default function TextPage({ moduleName = '文本', moduleKey = 'text', au
     );
     return sortByCreatedAtDesc(filtered);
   }, [texts, searchQuery]);
+
+  const listTotalPages = Math.max(1, Math.ceil(filteredTexts.length / listPageSize));
+  const safeListPage = Math.min(listPage, listTotalPages);
+  const listPageStart = (safeListPage - 1) * listPageSize;
+  const pagedTexts = useMemo(
+    () => filteredTexts.slice(listPageStart, listPageStart + listPageSize),
+    [filteredTexts, listPageStart, listPageSize],
+  );
+  const listPageStartLabel = filteredTexts.length === 0 ? 0 : listPageStart + 1;
+  const listPageEndLabel = Math.min(listPageStart + listPageSize, filteredTexts.length);
+
+  useEffect(() => {
+    setListPage(1);
+  }, [searchQuery, moduleKey]);
+
+  useEffect(() => {
+    if (listPage > listTotalPages) {
+      setListPage(listTotalPages);
+    }
+  }, [listPage, listTotalPages]);
 
   useEffect(() => {
     if (!selectedText) return;
@@ -515,14 +538,14 @@ export default function TextPage({ moduleName = '文本', moduleKey = 'text', au
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-2">
+        <div className="flex-1 min-h-0 overflow-y-auto p-2">
           {filteredTexts.length === 0 ? (
             <div className="py-12 text-center text-slate-400">
               <FileText className="w-8 h-8 mx-auto mb-2 text-slate-300" />
               <p className="text-xs">暂无{moduleName}</p>
             </div>
           ) : (
-            filteredTexts.map((text) => {
+            pagedTexts.map((text) => {
               const rowUsage = getFragmentTemplateUsage(text);
               const scopeUniversal = (text.applicableToAllLotLevels ?? text.applicableToAllCategories) !== false;
               return (
@@ -579,6 +602,55 @@ export default function TextPage({ moduleName = '文本', moduleKey = 'text', au
             })
           )}
         </div>
+
+        {filteredTexts.length > 0 && (
+          <div className="shrink-0 border-t border-slate-100 px-3 py-2.5 space-y-2 bg-slate-50/80">
+            <p className="text-[10px] text-slate-500 leading-snug">
+              第 {listPageStartLabel}–{listPageEndLabel} 条，共 {filteredTexts.length} 条
+            </p>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1 text-[10px] text-slate-600">
+                <span>每页</span>
+                <FormSelect
+                  selectSize="xs"
+                  value={listPageSize}
+                  onChange={(e) => {
+                    setListPageSize(Number(e.target.value));
+                    setListPage(1);
+                  }}
+                  wrapperClassName="w-[3.25rem]"
+                >
+                  {[5, 10, 20].map((size) => (
+                    <option key={size} value={size}>
+                      {size}
+                    </option>
+                  ))}
+                </FormSelect>
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setListPage((p) => Math.max(1, p - 1))}
+                  disabled={safeListPage <= 1}
+                  className="px-2 py-1 text-[10px] border border-slate-200 rounded-md text-slate-600 bg-white hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  上一页
+                </button>
+                <span className="px-1 text-[10px] text-slate-600 tabular-nums">
+                  {safeListPage}/{listTotalPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setListPage((p) => Math.min(listTotalPages, p + 1))}
+                  disabled={safeListPage >= listTotalPages}
+                  className="px-2 py-1 text-[10px] border border-slate-200 rounded-md text-slate-600 bg-white hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  下一页
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 右侧：文本详情 */}

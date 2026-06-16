@@ -7,7 +7,6 @@ import type {
   TextFragment,
   TextBinding,
 } from '@/types';
-import { seedLotIds } from '@/lib/classification/seed-lot-ids';
 import { bindingMatchesSection, bindingTouchesTemplate } from '@/lib/textBindingMatch';
 import { appendDataAudit, getMockActor } from '@/lib/dataAudit';
 import {
@@ -18,6 +17,7 @@ import {
   resolveLotLevelPath,
   templateFieldsFromLotPath,
 } from '@/lib/classification';
+import { SPIC_DEVICE_PROCUREMENT_202603_RESOURCES } from '@/lib/seed/spicDeviceProcurement202603Resources';
 
 type SoftRow = { id: string; deletedAt?: string; deletedBy?: string };
 
@@ -29,11 +29,32 @@ function mergeActivePreserveDeleted<T extends SoftRow>(active: T[], storedFull: 
 
 
 const STORAGE_KEYS = {
-  textFragments: 'oo-text-fragments',
+  textFragments: 'oo-text-fragments-spic202603',
+  textFragmentsSeedVersion: 'oo-text-fragments-spic202603-version',
   templates: 'oo-templates',
   bidDocuments: 'oo-bid-documents',
   globalTemplateVars: 'oo-global-template-variables',
 } as const;
+
+/** 资源种子版本：变更后浏览器自动重置为最新 Mock 数据 */
+const TEXT_FRAGMENTS_SEED_VERSION = 'spic-202603-section-merge';
+
+/** 现行种子条数（按节合并后约 77 条）；旧版「每段一条」缓存约 200～400 条 */
+const TEXT_FRAGMENTS_SEED_EXPECTED_COUNT = SPIC_DEVICE_PROCUREMENT_202603_RESOURCES.length;
+
+/** 检测浏览器里是否仍为旧版细粒度拆分缓存（强刷不会清除 localStorage） */
+function isStaleTextFragmentCache(storedVersion: string | null, stored: TextFragment[]): boolean {
+  if (storedVersion !== TEXT_FRAGMENTS_SEED_VERSION) return true;
+  const active = stored.filter((f) => !f.deletedAt);
+  if (active.length > TEXT_FRAGMENTS_SEED_EXPECTED_COUNT + 40) return true;
+  return active.some(
+    (f) =>
+      // 旧版：重要提示各条单独成资源
+      (f.name.includes('第六章 投标文件格式｜4.请投标人仔细阅读'))
+      || (f.name.includes('第六章 投标文件格式｜3.【】里内容可删除'))
+      || f.name.includes('重要提示：'),
+  );
+}
 
 /** 招标范本通用变量（全范本变量库展示；不写入单个 Template.variables） */
 const GLOBAL_TEMPLATE_VARIABLES_SEED: TemplateVariable[] = [
@@ -307,71 +328,36 @@ export function getAllLotLevels() {
 /** @deprecated */
 export const getAllCategories = getAllLotLevels;
 
-// ─── Mock 文本片段数据（与 TextPage 共享）────────────────────────────────────
-const defaultTextFragments: TextFragment[] = [
-  {
-    id: 'txt-1',
-    name: '标准资格要求条款',
-    module: 'qualification',
-    content: '<h2>一、基本资格条件</h2><p>投标人应具备以下资格条件：</p><ol><li>具有独立法人资格；</li><li>具有良好的商业信誉和健全的财务会计制度；</li><li>具有履行合同所必需的设备和专业技术能力；</li><li>具有依法缴纳税收和社会保障资金的良好记录；</li><li>参加本次招标活动前三年内，在经营活动中没有重大违法记录。</li></ol>',
-    description: '适用于各类招标项目的通用资格要求',
-    createdAt: '2024-01-10',
-    updatedAt: '2024-01-15',
-    contentVersion: 1,
-    templateSyncedVersion: {},
-    bindings: [],
-    versions: [],
-  },
-  {
-    id: 'txt-2',
-    name: '投标文件密封要求',
-    module: 'text',
-    content: '<h2>密封要求</h2><p>投标文件应按以下要求密封：</p><ol><li>投标文件正本和副本应分别密封，并在封套上标明"正本"或"副本"字样；</li><li>封套上应注明招标项目名称、投标人名称和地址；</li><li>封套应加盖投标人公章；</li><li>未按要求密封的投标文件，招标人有权拒收。</li></ol>',
-    description: '投标文件密封的标准要求',
-    createdAt: '2024-01-12',
-    updatedAt: '2024-01-18',
-    contentVersion: 1,
-    templateSyncedVersion: {},
-    bindings: [],
-    versions: [],
-  },
-  {
-    id: 'txt-3',
-    name: '评标办法通用条款',
-    module: 'evaluation',
-    content: '<h2>评标办法</h2><p>本项目采用综合评分法进行评标，评分标准如下：</p><ol><li>商务评分（30分）：包括报价合理性、付款条件等；</li><li>技术评分（50分）：包括技术方案、设备参数、实施计划等；</li><li>业绩评分（20分）：包括同类项目业绩、企业资质等。</li></ol>',
-    description: '综合评分法评标通用条款（演示：仅「光伏项目EPC工程总承包」品类范本侧栏可见）',
-    applicableToAllLotLevels: false,
-    applicableLotLevelIds: [seedLotIds.kancha],
-    createdAt: '2024-01-14',
-    updatedAt: '2024-01-20',
-    contentVersion: 1,
-    templateSyncedVersion: {},
-    bindings: [],
-    versions: [],
-  },
-  {
-    id: 'txt-4',
-    name: '合同通用条款',
-    module: 'contract-clause',
-    content: '<h2>合同条款</h2><p>合同履行期间，双方应遵守以下条款：</p><ol><li>中标人应在接到中标通知书后30日内与招标人签订合同；</li><li>合同价格以中标价为准，不得随意变更；</li><li>履约保证金按合同总价的5%缴纳；</li><li>任何一方违约，应承担相应的违约责任。</li></ol>',
-    description: '合同签订与履行通用条款',
-    createdAt: '2024-01-16',
-    updatedAt: '2024-01-22',
-    contentVersion: 1,
-    templateSyncedVersion: {},
-    bindings: [],
-    versions: [],
-  },
-];
+// ─── Mock 文本片段数据（国家电投设备采购招标文件范本 2026 按段落拆分）────────────────
+const defaultTextFragments: TextFragment[] = SPIC_DEVICE_PROCUREMENT_202603_RESOURCES;
+
+function loadTextFragmentsFromStorage(): TextFragment[] {
+  if (typeof window === 'undefined') {
+    return deepClone(defaultTextFragments);
+  }
+  try {
+    const storedVersion = window.localStorage.getItem(STORAGE_KEYS.textFragmentsSeedVersion);
+    const stored = readStorage(STORAGE_KEYS.textFragments, defaultTextFragments);
+    if (isStaleTextFragmentCache(storedVersion, stored)) {
+      window.localStorage.removeItem(STORAGE_KEYS.textFragments);
+      window.localStorage.setItem(STORAGE_KEYS.textFragmentsSeedVersion, TEXT_FRAGMENTS_SEED_VERSION);
+      writeStorage(STORAGE_KEYS.textFragments, defaultTextFragments);
+      return deepClone(defaultTextFragments);
+    }
+    return stored;
+  } catch {
+    /* ignore */
+  }
+  return readStorage(STORAGE_KEYS.textFragments, defaultTextFragments);
+}
 
 export let mockTextFragments: TextFragment[] = deepClone(defaultTextFragments);
 
 export function getMockTextFragments(): TextFragment[] {
-  if (mockTextFragments.length === 0) {
-    mockTextFragments = readStorage(STORAGE_KEYS.textFragments, defaultTextFragments);
-  } else if (typeof window !== 'undefined') {
-    mockTextFragments = readStorage(STORAGE_KEYS.textFragments, mockTextFragments);
+  if (typeof window !== 'undefined') {
+    mockTextFragments = loadTextFragmentsFromStorage();
+  } else if (mockTextFragments.length === 0) {
+    mockTextFragments = deepClone(defaultTextFragments);
   }
   return deepClone(mockTextFragments)
     .filter((f) => !f.deletedAt)
