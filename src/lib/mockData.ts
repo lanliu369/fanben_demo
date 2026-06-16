@@ -37,12 +37,31 @@ const STORAGE_KEYS = {
 } as const;
 
 /** 资源种子版本：变更后浏览器自动重置为最新 Mock 数据 */
-const TEXT_FRAGMENTS_SEED_VERSION = 'spic-202603-section-merge-v3';
+const TEXT_FRAGMENTS_SEED_VERSION = 'spic-202603-section-merge-v4';
 
 const LEGACY_TEXT_FRAGMENTS_KEY = 'oo-text-fragments';
 
 /** 现行种子条数（按节合并后约 77 条）；旧版「每段一条」缓存约 200～400 条 */
 const TEXT_FRAGMENTS_SEED_EXPECTED_COUNT = SPIC_DEVICE_PROCUREMENT_202603_RESOURCES.length;
+
+const SEED_MODULE_COUNTS = SPIC_DEVICE_PROCUREMENT_202603_RESOURCES.reduce(
+  (acc, f) => {
+    const m = f.module ?? 'text';
+    acc[m] = (acc[m] ?? 0) + 1;
+    return acc;
+  },
+  {} as Record<string, number>,
+);
+
+function moduleCountsOf(fragments: TextFragment[]): Record<string, number> {
+  const acc: Record<string, number> = {};
+  for (const f of fragments) {
+    if (f.deletedAt) continue;
+    const m = f.module ?? 'text';
+    acc[m] = (acc[m] ?? 0) + 1;
+  }
+  return acc;
+}
 
 function hasSpicSeedContent(stored: TextFragment[]): boolean {
   return stored.some((f) => !f.deletedAt && f.id.startsWith('spic-202603-'));
@@ -53,10 +72,16 @@ function isStaleTextFragmentCache(storedVersion: string | null, stored: TextFrag
   if (storedVersion !== TEXT_FRAGMENTS_SEED_VERSION) return true;
   const active = stored.filter((f) => !f.deletedAt);
   if (!hasSpicSeedContent(stored)) return true;
+  if (active.length !== TEXT_FRAGMENTS_SEED_EXPECTED_COUNT) return true;
+  const storedCounts = moduleCountsOf(stored);
+  for (const [mod, count] of Object.entries(SEED_MODULE_COUNTS)) {
+    if ((storedCounts[mod] ?? 0) !== count) return true;
+  }
   if (active.length > TEXT_FRAGMENTS_SEED_EXPECTED_COUNT + 40) return true;
   return active.some(
     (f) =>
-      f.name.includes('第六章 投标文件格式｜4.请投标人仔细阅读')
+      (f.module === 'qualification' && !f.name.startsWith('1.4 投标人资格要求'))
+      || f.name.includes('第六章 投标文件格式｜4.请投标人仔细阅读')
       || f.name.includes('第六章 投标文件格式｜3.【】里内容可删除')
       || f.name.includes('重要提示：'),
   );
