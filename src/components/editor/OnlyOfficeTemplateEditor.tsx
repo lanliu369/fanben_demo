@@ -9,6 +9,7 @@ import { textFragmentAppliesToTemplate } from '@/lib/textFragmentLotScope';
 import { sortByCreatedAtDesc } from '@/lib/sortByCreatedAtDesc';
 import { expandNestedResourceEmbeds } from '@/lib/resourceEmbedHtml';
 import { buildResourceInsertHtml } from '@/lib/quotedBlockHtml';
+import { getSectionTitlesForFragmentInTemplate } from '@/lib/textFragmentReference';
 import { normalizePasteHtmlForWps } from '@/lib/wpsPasteHtmlNormalize';
 import { SystemDialog } from '@/components/ui/SystemDialog';
 import { ModalOverlay } from '@/components/ui/ModalOverlay';
@@ -119,18 +120,6 @@ type ResourceTextCard = {
   source: 'linked' | 'pool';
   module: ResourceModule;
 };
-
-function getSectionTitlesForFragmentInTemplate(sections: TemplateSection[], textFragmentId: string): string[] {
-  const out: string[] = [];
-  const walk = (secs: TemplateSection[]) => {
-    for (const s of secs) {
-      if (s.textFragmentId === textFragmentId) out.push(s.title || '(无标题节)');
-      if (s.children?.length) walk(s.children);
-    }
-  };
-  walk(sections);
-  return out;
-}
 
 function bindingAppliesToTemplate(b: TextBinding, tpl: Template): boolean {
   if (b.templateId && b.templateId === tpl.id) return true;

@@ -11,6 +11,11 @@ import { bindingMatchesSection, bindingTouchesTemplate } from '@/lib/textBinding
 import { resolveTemplateLotLevelId } from '@/lib/classification';
 import { expandNestedResourceEmbeds } from '@/lib/resourceEmbedHtml';
 import { syncResourceBlocksInHtml } from '@/lib/quotedBlockHtml';
+import {
+  collectFragmentIdsFromSection,
+  sectionReferencesFragment,
+  templateReferencesFragment,
+} from '@/lib/textFragmentReference';
 import { appendDataAudit, getMockActor } from '@/lib/dataAudit';
 import {
   getClassificationStore,
@@ -516,7 +521,7 @@ export function normalizeTextFragment(f: TextFragment): TextFragment {
   });
 }
 
-/** 绑定记录 + 范本章节中 textFragmentId 扫描，汇总引用该资源的范本 ID（不含已删除范本行） */
+/** 绑定记录 + 范本章节引用（textFragmentId / 正文内嵌块），汇总引用该资源的范本 ID */
 export function collectTemplateIdsUsingFragment(frag: TextFragment): string[] {
   if (typeof window !== 'undefined') {
     mockTemplates = readStorage(STORAGE_KEYS.templates, mockTemplates);
@@ -528,12 +533,76 @@ export function collectTemplateIdsUsingFragment(frag: TextFragment): string[] {
   const fid = frag.id;
   for (const t of mockTemplates) {
     if (t.deletedAt) continue;
-    const serialized = JSON.stringify(t.sections);
-    if (serialized.includes(`"textFragmentId":"${fid}"`) || serialized.includes(`data-text-fragment-id="${fid}"`)) {
+    if (templateReferencesFragment(t, fid)) {
       ids.add(t.id);
     }
   }
   return [...ids];
+}
+
+/**
+ * 范本保存后：根据章节 textFragmentId / 正文内嵌引用块，回写资源 bindings，供「范本使用统计」展示。
+ */
+export function syncTemplateFragmentBindingsFromSections(template: Template): void {
+  if (typeof window !== 'undefined') {
+    mockTextFragments = readStorage(STORAGE_KEYS.textFragments, mockTextFragments);
+  }
+
+  const refsByFragment = new Map<string, Array<{ sectionId: string; sectionTitle: string }>>();
+
+  const walk = (sections: TemplateSection[]) => {
+    for (const s of sections) {
+      for (const fid of collectFragmentIdsFromSection(s)) {
+        const arr = refsByFragment.get(fid) ?? [];
+        if (!arr.some((x) => x.sectionId === s.id)) {
+          arr.push({ sectionId: s.id, sectionTitle: s.title.trim() || '(无标题节)' });
+        }
+        refsByFragment.set(fid, arr);
+      }
+      if (s.children?.length) {
+        walk(s.children);
+      }
+    }
+  };
+  walk(template.sections);
+
+  let changed = false;
+  mockTextFragments = mockTextFragments.map((frag) => {
+    const refs = refsByFragment.get(frag.id) ?? [];
+    let bindings = [...(frag.bindings ?? [])];
+
+    bindings = bindings.filter((b) => {
+      if (b.templateId !== template.id || !b.templateSectionId) return true;
+      return refs.some((r) => r.sectionId === b.templateSectionId);
+    });
+
+    for (const r of refs) {
+      const exists = bindings.some(
+        (b) => b.templateId === template.id && b.templateSectionId === r.sectionId,
+      );
+      if (!exists) {
+        bindings.push({
+          id: `bind-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+          textFragmentId: frag.id,
+          templateId: template.id,
+          templateSectionId: r.sectionId,
+          templateName: template.name,
+          sectionTitle: r.sectionTitle,
+          order: bindings.length + 1,
+        });
+      }
+    }
+
+    if (JSON.stringify(bindings) === JSON.stringify(frag.bindings ?? [])) {
+      return frag;
+    }
+    changed = true;
+    return { ...frag, bindings };
+  });
+
+  if (changed) {
+    writeStorage(STORAGE_KEYS.textFragments, mockTextFragments);
+  }
 }
 
 export interface FragmentTemplateUsageRow {
@@ -586,7 +655,7 @@ function sectionInheritsFromFragment(
   textFragmentId: string,
   bindings: TextBinding[],
 ): boolean {
-  if (sec.textFragmentId === textFragmentId) {
+  if (sectionReferencesFragment(sec, textFragmentId)) {
     return true;
   }
   return bindings.some((b) => bindingMatchesSection(b, tpl, sec));

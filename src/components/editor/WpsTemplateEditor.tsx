@@ -9,6 +9,7 @@ import { resolveTemplateLotLevelId } from '@/lib/classification';
 import { textFragmentAppliesToTemplate } from '@/lib/textFragmentLotScope';
 import { sortByCreatedAtDesc } from '@/lib/sortByCreatedAtDesc';
 import { buildSectionsHtmlWithResources, detachManuallyEditedResourceSections, syncUnchangedLinkedResourcesOnSave } from '@/lib/resolveTemplateSectionHtml';
+import { promoteEmbeddedFragmentReferences, getSectionTitlesForFragmentInTemplate } from '@/lib/textFragmentReference';
 import { expandNestedResourceEmbeds } from '@/lib/resourceEmbedHtml';
 import { buildResourceInsertHtml } from '@/lib/quotedBlockHtml';
 import { saveTemplateDocxCache, loadTemplateDocxCache } from '@/lib/templateDocxCache';
@@ -141,22 +142,6 @@ async function pasteViaWpsWebOfficeApplication(
   return false;
 }
 
-function getSectionTitlesForFragmentInTemplate(sections: TemplateSection[], textFragmentId: string): string[] {
-  const out: string[] = [];
-  const walk = (secs: TemplateSection[]) => {
-    for (const s of secs) {
-      if (s.textFragmentId === textFragmentId) {
-        out.push(s.title || '(无标题节)');
-      }
-      if (s.children?.length) {
-        walk(s.children);
-      }
-    }
-  };
-  walk(sections);
-  return out;
-}
-
 function bindingAppliesToTemplate(b: TextBinding, tpl: Template): boolean {
   if (b.templateId && b.templateId === tpl.id) {
     return true;
@@ -176,6 +161,19 @@ function bindingAppliesToTemplate(b: TextBinding, tpl: Template): boolean {
     return walk(tpl.sections);
   }
   return false;
+}
+
+function getSectionTitlesForFragmentInTemplateWithSession(
+  sections: TemplateSection[],
+  textFragmentId: string,
+  sessionInsertedIds: readonly string[],
+): string[] {
+  const fromTree = getSectionTitlesForFragmentInTemplate(sections, textFragmentId);
+  if (fromTree.length > 0) return fromTree;
+  if (sessionInsertedIds.includes(textFragmentId)) {
+    return ['已插入正文（保存后写入绑定）'];
+  }
+  return [];
 }
 
 type ResourceModule = NonNullable<TextFragment['module']>;
@@ -212,13 +210,21 @@ type ResourceTextCard = {
  *    在 1）得到的集合上按 `module` 过滤；同一 Tab 内合并「已关联」与「资源池」（与资源管理列表一致）。
  */
 
-/** 已与本范本关联、且标段适用的文本资源（绑定 + 章节引用） */
-function collectTemplateLinkedTextCards(template: Template, fragments: TextFragment[]) {
+/** 已与本范本关联、且标段适用的文本资源（绑定 + 章节引用 + 本次会话插入） */
+function collectTemplateLinkedTextCards(
+  template: Template,
+  fragments: TextFragment[],
+  sessionInsertedIds: readonly string[] = [],
+) {
   return fragments
     .filter((frag) => textFragmentAppliesToTemplate(frag, template))
     .map((frag) => {
       const fromBindings = (frag.bindings ?? []).filter((b) => bindingAppliesToTemplate(b, template));
-      const fromSections = getSectionTitlesForFragmentInTemplate(template.sections, frag.id);
+      const fromSections = getSectionTitlesForFragmentInTemplateWithSession(
+        template.sections,
+        frag.id,
+        sessionInsertedIds,
+      );
       if (fromBindings.length === 0 && fromSections.length === 0) {
         return null;
       }
@@ -243,12 +249,17 @@ function collectTemplateLinkedTextCards(template: Template, fragments: TextFragm
 }
 
 /** 标段适用但未绑定本范本的资源池（避免侧栏空白；插入后可再在资源管理绑定） */
-function collectTemplateFallbackTextCards(template: Template, fragments: TextFragment[]): ResourceTextCard[] {
+function collectTemplateFallbackTextCards(
+  template: Template,
+  fragments: TextFragment[],
+  sessionInsertedIds: readonly string[] = [],
+): ResourceTextCard[] {
   return fragments
     .filter((frag) => textFragmentAppliesToTemplate(frag, template))
     .map((frag) => {
       const linkedByBinding = (frag.bindings ?? []).some((b) => bindingAppliesToTemplate(b, template));
-      const linkedBySection = getSectionTitlesForFragmentInTemplate(template.sections, frag.id).length > 0;
+      const linkedBySection =
+        getSectionTitlesForFragmentInTemplateWithSession(template.sections, frag.id, sessionInsertedIds).length > 0;
       if (linkedByBinding || linkedBySection) {
         return null;
       }
@@ -376,6 +387,8 @@ export function WpsTemplateEditor({ template, onBack, onSave, initialFile }: Wps
   const [newVariableName, setNewVariableName] = useState('');
   const [newVariableSampleValue, setNewVariableSampleValue] = useState('');
   const [resourceFilterQuery, setResourceFilterQuery] = useState('');
+  /** 本次编辑会话内已从侧栏插入正文的资源 id（保存前侧栏展示「已插入」） */
+  const [sessionInsertedFragmentIds, setSessionInsertedFragmentIds] = useState<string[]>([]);
   const [editorVersion, setEditorVersion] = useState(() => (template.version ?? 'V1.0').trim() || 'V1.0');
   const [deleteVariableId, setDeleteVariableId] = useState<string | null>(null);
   const [systemNotice, setSystemNotice] = useState<string | null>(null);
@@ -472,6 +485,7 @@ export function WpsTemplateEditor({ template, onBack, onSave, initialFile }: Wps
         parsed.length > 0 ? mergeParsedSectionsWithPrevious(tpl.sections, parsed) : tpl.sections;
       merged = detachManuallyEditedResourceSections(merged, tpl, fragments, tpl.sections);
       merged = syncUnchangedLinkedResourcesOnSave(merged, tpl, fragments);
+      merged = promoteEmbeddedFragmentReferences(merged);
       const resolvedVersion = editorVersion.trim() || (tpl.version ?? 'V1.0').trim() || 'V1.0';
       onSave({
         ...tpl,
@@ -884,16 +898,16 @@ export function WpsTemplateEditor({ template, onBack, onSave, initialFile }: Wps
 
   /** 标段适用且已关联当前范本（绑定或章节引用），尚未按 Tab 分模块 */
   const linkedTextCards = useMemo(
-    () => collectTemplateLinkedTextCards(template, allFragments),
+    () => collectTemplateLinkedTextCards(template, allFragments, sessionInsertedFragmentIds),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 刻意在 sections/绑定变更或聚焦时全量重算
-    [template.id, template.updatedAt, resourceDataTick, template.sections, allFragments],
+    [template.id, template.updatedAt, resourceDataTick, template.sections, allFragments, sessionInsertedFragmentIds],
   );
 
   /** 标段适用但未绑定本范本；尚未按 Tab 分模块 */
   const fallbackTextCards = useMemo(
-    () => collectTemplateFallbackTextCards(template, allFragments),
+    () => collectTemplateFallbackTextCards(template, allFragments, sessionInsertedFragmentIds),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 刻意在 sections/绑定变更或聚焦时全量重算
-    [template.id, template.updatedAt, resourceDataTick, template.sections, allFragments],
+    [template.id, template.updatedAt, resourceDataTick, template.sections, allFragments, sessionInsertedFragmentIds],
   );
 
   /** 当前 Tab 对应 module 下、已关联本范本的条目 */
@@ -949,6 +963,9 @@ export function WpsTemplateEditor({ template, onBack, onSave, initialFile }: Wps
       setResourceInsertRetryItem(item);
       return;
     }
+    setSessionInsertedFragmentIds((prev) =>
+      prev.includes(item.id) ? prev : [...prev, item.id],
+    );
     setInsertHint('已插入到当前光标位置');
   }, [insertResourceCardAtCursor]);
 
