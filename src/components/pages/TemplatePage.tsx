@@ -18,6 +18,7 @@ import {
   duplicateMockTemplate,
   syncTemplateFragmentBindingsFromSections,
 } from '@/lib/mockData';
+import { clearTemplateResourceInserts, getTemplateResourceInserts } from '@/lib/templateResourceInserts';
 import { getClassificationStore, templateFieldsFromLotPath } from '@/lib/classification';
 import { seedLotIds } from '@/lib/classification/seed-lot-ids';
 import {
@@ -935,7 +936,9 @@ export default function TemplatePage() {
       setTemplates(prev => {
         const next = [...prev, newTpl];
         setMockTemplates(next);
-        syncTemplateFragmentBindingsFromSections(newTpl);
+        syncTemplateFragmentBindingsFromSections(newTpl, getTemplateResourceInserts(newTpl.id));
+        clearTemplateResourceInserts(updated.id);
+        clearTemplateResourceInserts(newTpl.id);
         appendDataAudit({
           scope: 'template',
           action: 'create',
@@ -950,7 +953,8 @@ export default function TemplatePage() {
         const saved = { ...updated, editProgress: computedProgress };
         const next = prev.map(t => t.id === updated.id ? saved : t);
         setMockTemplates(next);
-        syncTemplateFragmentBindingsFromSections(saved);
+        syncTemplateFragmentBindingsFromSections(saved, getTemplateResourceInserts(saved.id));
+        clearTemplateResourceInserts(saved.id);
         appendDataAudit({
           scope: 'template',
           action: 'update',

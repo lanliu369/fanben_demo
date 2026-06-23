@@ -541,9 +541,56 @@ export function collectTemplateIdsUsingFragment(frag: TextFragment): string[] {
 }
 
 /**
+ * 范本编辑器侧栏插入资源时立即写入绑定（不依赖保存后 mammoth 是否保留 data-text-fragment-id）。
+ */
+export function upsertTemplateFragmentBinding(
+  template: Pick<Template, 'id' | 'name'>,
+  fragmentId: string,
+  opts?: { sectionId?: string; sectionTitle?: string },
+): void {
+  if (typeof window !== 'undefined') {
+    mockTextFragments = readStorage(STORAGE_KEYS.textFragments, mockTextFragments);
+  }
+  const fid = fragmentId.trim();
+  if (!fid) return;
+
+  let changed = false;
+  mockTextFragments = mockTextFragments.map((frag) => {
+    if (frag.id !== fid) return frag;
+    const bindings = [...(frag.bindings ?? [])];
+    const sectionId = opts?.sectionId?.trim();
+    const exists = bindings.some((b) => {
+      if (b.templateId !== template.id) return false;
+      if (sectionId) return b.templateSectionId === sectionId;
+      return !b.templateSectionId || b.sectionTitle === (opts?.sectionTitle ?? '编辑器内插入');
+    });
+    if (exists) return frag;
+
+    bindings.push({
+      id: `bind-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      textFragmentId: fid,
+      templateId: template.id,
+      ...(sectionId ? { templateSectionId: sectionId } : {}),
+      templateName: template.name,
+      sectionTitle: opts?.sectionTitle?.trim() || '编辑器内插入',
+      order: bindings.length + 1,
+    });
+    changed = true;
+    return { ...frag, bindings };
+  });
+
+  if (changed) {
+    writeStorage(STORAGE_KEYS.textFragments, mockTextFragments);
+  }
+}
+
+/**
  * 范本保存后：根据章节 textFragmentId / 正文内嵌引用块，回写资源 bindings，供「范本使用统计」展示。
  */
-export function syncTemplateFragmentBindingsFromSections(template: Template): void {
+export function syncTemplateFragmentBindingsFromSections(
+  template: Template,
+  extraFragmentIds: string[] = [],
+): void {
   if (typeof window !== 'undefined') {
     mockTextFragments = readStorage(STORAGE_KEYS.textFragments, mockTextFragments);
   }
@@ -566,13 +613,25 @@ export function syncTemplateFragmentBindingsFromSections(template: Template): vo
   };
   walk(template.sections);
 
+  for (const fid of extraFragmentIds) {
+    const id = fid.trim();
+    if (!id) continue;
+    if (!refsByFragment.has(id) || refsByFragment.get(id)!.length === 0) {
+      refsByFragment.set(id, [{ sectionId: `insert-${template.id}-${id}`, sectionTitle: '编辑器内插入' }]);
+    }
+  }
+
   let changed = false;
   mockTextFragments = mockTextFragments.map((frag) => {
     const refs = refsByFragment.get(frag.id) ?? [];
     let bindings = [...(frag.bindings ?? [])];
 
     bindings = bindings.filter((b) => {
-      if (b.templateId !== template.id || !b.templateSectionId) return true;
+      if (b.templateId !== template.id) return true;
+      if (!b.templateSectionId) return true;
+      if (b.templateSectionId.startsWith('insert-')) {
+        return refs.some((r) => r.sectionId === b.templateSectionId);
+      }
       return refs.some((r) => r.sectionId === b.templateSectionId);
     });
 
@@ -588,6 +647,20 @@ export function syncTemplateFragmentBindingsFromSections(template: Template): vo
           templateSectionId: r.sectionId,
           templateName: template.name,
           sectionTitle: r.sectionTitle,
+          order: bindings.length + 1,
+        });
+      }
+    }
+
+    if (refs.length === 0) {
+      const hasTemplateBinding = bindings.some((b) => b.templateId === template.id);
+      if (extraFragmentIds.includes(frag.id) && !hasTemplateBinding) {
+        bindings.push({
+          id: `bind-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+          textFragmentId: frag.id,
+          templateId: template.id,
+          templateName: template.name,
+          sectionTitle: '编辑器内插入',
           order: bindings.length + 1,
         });
       }

@@ -4,11 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Bot, Edit2, FileCheck, FilePlus2, FileText, Loader2, Plus, Save, Scale, Search, Shield, Trash2 } from 'lucide-react';
 import { asBlob } from 'html-docx-js-typescript';
 import type { Template, TemplateSection, TemplateVariable, TextBinding, TextFragment } from '@/types';
-import { getGlobalTemplateVariables, getMockTextFragments } from '@/lib/mockData';
+import { getGlobalTemplateVariables, getMockTextFragments, upsertTemplateFragmentBinding } from '@/lib/mockData';
 import { resolveTemplateLotLevelId } from '@/lib/classification';
 import { textFragmentAppliesToTemplate } from '@/lib/textFragmentLotScope';
 import { sortByCreatedAtDesc } from '@/lib/sortByCreatedAtDesc';
 import { buildSectionsHtmlWithResources, detachManuallyEditedResourceSections, syncUnchangedLinkedResourcesOnSave } from '@/lib/resolveTemplateSectionHtml';
+import { recordTemplateResourceInsert } from '@/lib/templateResourceInserts';
 import { promoteEmbeddedFragmentReferences, getSectionTitlesForFragmentInTemplate } from '@/lib/textFragmentReference';
 import { expandNestedResourceEmbeds } from '@/lib/resourceEmbedHtml';
 import { buildResourceInsertHtml } from '@/lib/quotedBlockHtml';
@@ -963,10 +964,16 @@ export function WpsTemplateEditor({ template, onBack, onSave, initialFile }: Wps
       setResourceInsertRetryItem(item);
       return;
     }
+    const tpl = templateRef.current;
+    upsertTemplateFragmentBinding(tpl, item.id, {
+      sectionTitle: item.sectionsLabel !== '未绑定当前范本' ? item.sectionsLabel : '编辑器内插入',
+    });
+    recordTemplateResourceInsert(tpl.id, item.id);
     setSessionInsertedFragmentIds((prev) =>
       prev.includes(item.id) ? prev : [...prev, item.id],
     );
-    setInsertHint('已插入到当前光标位置');
+    setResourceDataTick((t) => t + 1);
+    setInsertHint('已插入到当前光标位置，并已关联到本范本');
   }, [insertResourceCardAtCursor]);
 
   const aiDemoSuggestions = useMemo(() => {

@@ -100,6 +100,28 @@ export default function TextPage({ moduleName = '文本', moduleKey = 'text', au
   useEffect(() => {
     setAllTexts(getMockTextFragments());
   }, [moduleKey]);
+
+  /** 从范本编辑返回等场景：重新读取 localStorage 中的 bindings */
+  useEffect(() => {
+    const refresh = () => {
+      const next = getMockTextFragments();
+      setAllTexts(next);
+      setSelectedText((prev) => {
+        if (!prev) return prev;
+        return next.find((t) => t.id === prev.id) ?? prev;
+      });
+    };
+    const onVis = () => {
+      if (document.visibilityState === 'visible') refresh();
+    };
+    refresh();
+    document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('focus', refresh);
+    return () => {
+      document.removeEventListener('visibilitychange', onVis);
+      window.removeEventListener('focus', refresh);
+    };
+  }, []);
   const [selectedText, setSelectedText] = useState<TextFragment | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
