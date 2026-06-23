@@ -8,6 +8,9 @@ import type {
   TextBinding,
 } from '@/types';
 import { bindingMatchesSection, bindingTouchesTemplate } from '@/lib/textBindingMatch';
+import { resolveTemplateLotLevelId } from '@/lib/classification';
+import { expandNestedResourceEmbeds } from '@/lib/resourceEmbedHtml';
+import { syncResourceBlocksInHtml } from '@/lib/quotedBlockHtml';
 import { appendDataAudit, getMockActor } from '@/lib/dataAudit';
 import {
   getClassificationStore,
@@ -37,7 +40,7 @@ const STORAGE_KEYS = {
 } as const;
 
 /** 资源种子版本：变更后浏览器自动重置为最新 Mock 数据 */
-const TEXT_FRAGMENTS_SEED_VERSION = 'spic-202603-section-merge-v4';
+const TEXT_FRAGMENTS_SEED_VERSION = 'spic-202603-section-merge-v5';
 
 const LEGACY_TEXT_FRAGMENTS_KEY = 'oo-text-fragments';
 
@@ -525,7 +528,8 @@ export function collectTemplateIdsUsingFragment(frag: TextFragment): string[] {
   const fid = frag.id;
   for (const t of mockTemplates) {
     if (t.deletedAt) continue;
-    if (JSON.stringify(t.sections).includes(`"textFragmentId":"${fid}"`)) {
+    const serialized = JSON.stringify(t.sections);
+    if (serialized.includes(`"textFragmentId":"${fid}"`) || serialized.includes(`data-text-fragment-id="${fid}"`)) {
       ids.add(t.id);
     }
   }
@@ -592,13 +596,17 @@ export function updateMockTemplateTextFragment(textFragmentId: string, newConten
   const bindings = getBindingsForFragment(textFragmentId);
 
   const updateSectionsForTemplate = (tpl: Template, sections: TemplateSection[]): TemplateSection[] => {
+    const lotLevelId = resolveTemplateLotLevelId(tpl);
+    const expandedContent = expandNestedResourceEmbeds(newContent, lotLevelId, mockTextFragments);
     return sections.map(sec => {
       const updated = { ...sec };
       if (sectionInheritsFromFragment(tpl, sec, textFragmentId, bindings)) {
-        updated.content = newContent;
+        updated.content = expandedContent;
         if (!sec.textFragmentId) {
           updated.textFragmentId = textFragmentId;
         }
+      } else if ((updated.content ?? '').includes('data-text-fragment-id')) {
+        updated.content = syncResourceBlocksInHtml(updated.content ?? '', textFragmentId, expandedContent);
       }
       if (sec.children?.length) {
         updated.children = updateSectionsForTemplate(tpl, sec.children);
@@ -611,10 +619,12 @@ export function updateMockTemplateTextFragment(textFragmentId: string, newConten
     if (tpl.deletedAt) {
       return tpl;
     }
-    const hasDirectId = JSON.stringify(tpl.sections).includes(`"textFragmentId":"${textFragmentId}"`);
+    const serialized = JSON.stringify(tpl.sections);
+    const hasDirectId = serialized.includes(`"textFragmentId":"${textFragmentId}"`);
+    const hasEmbedded = serialized.includes(`data-text-fragment-id="${textFragmentId}"`);
     const hasTplBinding =
       bindings.length > 0 && bindings.some((b) => bindingTouchesTemplate(b, tpl));
-    if (!hasDirectId && !hasTplBinding) {
+    if (!hasDirectId && !hasTplBinding && !hasEmbedded) {
       return tpl;
     }
     return {

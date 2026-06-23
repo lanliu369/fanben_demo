@@ -6,7 +6,7 @@ import {
   wpsFail,
   wpsOk,
 } from '@/lib/wpsCallbackHelpers';
-import { ensureDocxAndMeta } from '@/lib/wpsDocumentMeta';
+import { requireDocxAndMeta } from '@/lib/wpsDocumentMeta';
 import { publicBaseUrlFromRequest } from '@/lib/wpsPublicUrl';
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ file_id: string }> }) {
@@ -17,8 +17,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ file
   if (denied) return denied;
 
   try {
-    await ensureDocxAndMeta(file_id, file_id);
-    const base = publicBaseUrlFromRequest(req);
+    await requireDocxAndMeta(file_id, file_id);
+    const envBase = process.env.WPS_CALLBACK_PUBLIC_BASE_URL?.trim()?.replace(/\/$/, '');
+    const base = envBase || publicBaseUrlFromRequest(req);
     const url = `${base}/api/documents/${encodeURIComponent(file_id)}`;
     return wpsOk({ url });
   } catch (e) {

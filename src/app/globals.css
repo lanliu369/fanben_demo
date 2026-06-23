@@ -775,28 +775,33 @@ main > header h2,
   margin: 1rem 0;
 }
 
-/* 引用文本块高亮 — 兼容标书格式 */
+/* 引用资源块高亮 — 编辑态醒目提示，导出前由清洗逻辑去除 */
 .ProseMirror .quoted-block {
   position: relative;
-  background-color: rgba(251, 191, 36, 0.06);
-  border-left: 3px solid #f59e0b;
-  padding: 6px 10px;
-  margin: 0;
-  border-radius: 0 4px 4px 0;
+  background-color: #fffbeb;
+  border: 2px dashed #f59e0b;
+  padding: 14px 14px 12px;
+  margin: 10px 0;
+  border-radius: 8px;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.2);
 }
 
 .ProseMirror .quoted-block::before {
-  content: "引用文本";
-  position: absolute;
-  top: -7px;
-  right: 6px;
-  font-size: 10px;
-  font-weight: 500;
-  color: #b45309;
-  background-color: #fffbeb;
-  padding: 1px 6px;
-  border-radius: 3px;
-  border: 1px solid #fcd34d;
+  content: "【引用资源】请勿直接编辑 · 改动后将脱离同步";
+  display: block;
+  position: relative;
+  top: 0;
+  right: auto;
+  left: auto;
+  margin: -14px -14px 10px;
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.45;
+  color: #78350f;
+  background: linear-gradient(90deg, #f59e0b 0%, #fbbf24 100%);
+  border-bottom: 2px solid #d97706;
+  border-radius: 6px 6px 0 0;
   pointer-events: none;
 }
 

@@ -2,11 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs/promises';
 import path from 'path';
 import mammoth from 'mammoth';
-
-const DOCS_DIR = path.join(process.cwd(), 'public', 'documents');
+import { docxPathForId } from '@/lib/documentsDir';
 
 async function exportHtmlViaMammoth(id: string): Promise<string | null> {
-  const fp = path.join(DOCS_DIR, `${id}.docx`);
+  const fp = docxPathForId(id);
   try {
     const buf = await fs.readFile(fp);
     const { value } = await mammoth.convertToHtml({ buffer: buf });

@@ -6,7 +6,7 @@ import {
   wpsFail,
   wpsOk,
 } from '@/lib/wpsCallbackHelpers';
-import { buildWpsFileInfo, ensureDocxAndMeta } from '@/lib/wpsDocumentMeta';
+import { buildWpsFileInfo, requireDocxAndMeta } from '@/lib/wpsDocumentMeta';
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ file_id: string }> }) {
   const { file_id } = await params;
@@ -16,7 +16,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ file
   if (denied) return denied;
 
   try {
-    const rec = await ensureDocxAndMeta(file_id, file_id);
+    const rec = await requireDocxAndMeta(file_id, file_id);
     return wpsOk(await buildWpsFileInfo(file_id, rec));
   } catch (e) {
     console.error('[WPS callback] file info:', e);

@@ -14,6 +14,7 @@ export type WebOfficeInitPayload = {
 export type WebOfficeSdkInstance = {
   destroy?: () => void;
   ready?: () => Promise<void>;
+  save?: () => Promise<{ result?: string; size?: number; version?: number }> | { result?: string };
   on?: (event: string, cb: (data?: unknown) => void) => void;
   Application?: unknown;
 };

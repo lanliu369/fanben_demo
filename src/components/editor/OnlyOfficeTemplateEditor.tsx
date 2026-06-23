@@ -8,6 +8,7 @@ import { resolveTemplateLotLevelId } from '@/lib/classification';
 import { textFragmentAppliesToTemplate } from '@/lib/textFragmentLotScope';
 import { sortByCreatedAtDesc } from '@/lib/sortByCreatedAtDesc';
 import { expandNestedResourceEmbeds } from '@/lib/resourceEmbedHtml';
+import { buildResourceInsertHtml } from '@/lib/quotedBlockHtml';
 import { normalizePasteHtmlForWps } from '@/lib/wpsPasteHtmlNormalize';
 import { SystemDialog } from '@/components/ui/SystemDialog';
 import { ModalOverlay } from '@/components/ui/ModalOverlay';
@@ -87,35 +88,19 @@ function toJsStringLiteral(raw: string) {
     .replace(/\n/g, '\\n');
 }
 
-/** 变量库插入正文 */
+/** 变量库插入正文：行内 span，不包段落，避免破坏当前行/表格单元格格式 */
 function buildVariableInsertHtml(v: TemplateVariable): string {
   const key = v.key.trim();
   const displayName = (v.name?.trim() || key).trim();
   const k = escapeHtml(key);
   const d = escapeHtml(displayName);
   return (
-    `<p style="margin:0.35em 0;line-height:1.75;text-indent:0;" data-oo-insert="variable">` +
-    `<span data-template-variable="${k}" title="${k}" ` +
-    `style="display:inline-block;padding:3px 10px;background:#dbeafe;color:#1e40af;border-radius:6px;font-size:14px;font-weight:500;border:1px solid #93c5fd;white-space:nowrap;">${d}</span>` +
-    `</p>`
+    `<span data-oo-insert="variable" data-template-variable="${k}" title="${k}" ` +
+    `style="display:inline;padding:2px 8px;background:#dbeafe;color:#1e40af;border-radius:6px;font-size:inherit;line-height:inherit;font-weight:500;border:1px solid #93c5fd;white-space:nowrap;vertical-align:baseline;">${d}</span>`
   );
 }
 
-/** 侧栏插入资源 */
-function formatResourceInsertPayload(content: string) {
-  const trimmed = (content ?? '').trim();
-  if (!trimmed) return { plainBlock: '', htmlBlock: '' as string | undefined };
-  const looksLikeHtml = /<[a-z][\s\S]*>/i.test(trimmed);
-  const plainBlock = toInsertPlainText(content);
-  let htmlBlock: string | undefined;
-  if (looksLikeHtml) {
-    htmlBlock = `<div data-resource-insert="1">${trimmed}</div>`;
-  } else if (plainBlock) {
-    htmlBlock = `<div data-resource-insert="1" style="white-space:pre-wrap;color:#334155;line-height:1.7;">${escapeHtml(plainBlock).replace(/\n/g, '<br/>')}</div>`;
-  }
-  return { plainBlock, htmlBlock };
-}
-
+/** 侧栏插入资源：见 buildResourceInsertHtml */
 // ─────────────────────────────────────────────────────────────────────────────
 // 资源列表构建辅助
 // ─────────────────────────────────────────────────────────────────────────────
@@ -456,7 +441,7 @@ export function OnlyOfficeTemplateEditor({ template, onBack, onSave }: OnlyOffic
   const insertResourceCardAtCursor = useCallback(async (item: ResourceTextCard) => {
     const resolved = expandNestedResourceEmbeds(item.copyPayload, resolveTemplateLotLevelId(template), allFragments);
     const forWps = normalizePasteHtmlForWps(resolved);
-    const { plainBlock, htmlBlock } = formatResourceInsertPayload(forWps);
+    const { plainBlock, htmlBlock } = buildResourceInsertHtml(forWps, item.id);
     const inserted = await insertTextAtCursor(plainBlock, item.title, htmlBlock, { suppressSidebarHints: true });
     return { inserted: Boolean(inserted), plainBlock, htmlBlock };
   }, [insertTextAtCursor, template.lotLevelId, allFragments]);

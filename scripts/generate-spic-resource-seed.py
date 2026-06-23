@@ -161,18 +161,73 @@ def style_id(p: ET.Element) -> str:
 
 
 def table_to_html(tbl: ET.Element) -> str:
-    rows_html: list[str] = []
-    for tr in tbl.findall(".//w:tr", NS):
-        cells: list[str] = []
+    rows = tbl.findall("w:tr", NS)
+    if not rows:
+        return "<p>（表格）</p>"
+
+    matrix: list[list[dict]] = []
+    for tr in rows:
+        row: list[dict] = []
         for tc in tr.findall("w:tc", NS):
+            tc_pr = tc.find("w:tcPr", NS)
+            colspan = 1
+            vmerge: str | None = None
+            if tc_pr is not None:
+                gs = tc_pr.find("w:gridSpan", NS)
+                if gs is not None:
+                    colspan = max(1, int(gs.get(W + "val", "1")))
+                vm = tc_pr.find("w:vMerge", NS)
+                if vm is not None:
+                    vmerge = vm.get(W + "val", "continue") or "continue"
             cell_parts: list[str] = []
             for p in tc.findall(".//w:p", NS):
                 t = para_text(p)
                 if t:
                     cell_parts.append(escape(t))
-            cells.append(f"<td>{'<br/>'.join(cell_parts) if cell_parts else '&nbsp;'}</td>")
-        if cells:
-            rows_html.append(f"<tr>{''.join(cells)}</tr>")
+            row.append(
+                {
+                    "text": "<br/>".join(cell_parts) if cell_parts else "&nbsp;",
+                    "colspan": colspan,
+                    "vmerge": vmerge,
+                }
+            )
+        if row:
+            matrix.append(row)
+
+    if not matrix:
+        return "<p>（表格）</p>"
+
+    for ri, row in enumerate(matrix):
+        for ci, cell in enumerate(row):
+            if cell["vmerge"] != "restart":
+                continue
+            rowspan = 1
+            for rj in range(ri + 1, len(matrix)):
+                if ci >= len(matrix[rj]):
+                    break
+                below = matrix[rj][ci]
+                if below.get("vmerge") == "continue":
+                    rowspan += 1
+                else:
+                    break
+            cell["rowspan"] = rowspan
+
+    rows_html: list[str] = []
+    for row in matrix:
+        cells_html: list[str] = []
+        for cell in row:
+            if cell.get("vmerge") == "continue":
+                continue
+            attrs: list[str] = []
+            if cell["colspan"] > 1:
+                attrs.append(f'colspan="{cell["colspan"]}"')
+            if cell.get("rowspan", 1) > 1:
+                attrs.append(f'rowspan="{cell["rowspan"]}"')
+            attr_str = f' {" ".join(attrs)}' if attrs else ""
+            cells_html.append(f"<td{attr_str}>{cell['text']}</td>")
+        if cells_html:
+            rows_html.append(f"<tr>{''.join(cells_html)}</tr>")
+
     if not rows_html:
         return "<p>（表格）</p>"
     return (

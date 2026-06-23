@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs/promises';
-import path from 'path';
 import { validateUploadTicket } from '@/lib/wpsUploadTicket';
-
-const DOCS_DIR = path.join(process.cwd(), 'public', 'documents');
+import { ensureDocumentsDir, docxPathForId } from '@/lib/documentsDir';
 
 export async function PUT(
   req: NextRequest,
@@ -20,8 +18,8 @@ export async function PUT(
     return NextResponse.json({ error: 'empty body' }, { status: 400 });
   }
 
-  const dest = path.join(DOCS_DIR, `${file_id}.docx`);
-  await fs.mkdir(DOCS_DIR, { recursive: true });
+  const dest = docxPathForId(file_id);
+  ensureDocumentsDir();
   await fs.writeFile(dest, buf);
 
   return new NextResponse(null, { status: 200 });

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import path from 'path';
 import fs from 'fs/promises';
 import { createDocxWithHeading, updateDocxHeading, extractDocxHeading } from '@/lib/docx';
+import { docxPathForId } from '@/lib/documentsDir';
 
 /**
  * GET /api/documents/[id]/heading
@@ -13,7 +13,7 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const docPath = path.join(process.cwd(), 'public/documents', `${id}.docx`);
+    const docPath = docxPathForId(id);
 
     // 检查文件是否存在
     try {
@@ -52,7 +52,7 @@ export async function PUT(
       );
     }
 
-    const docPath = path.join(process.cwd(), 'public/documents', `${id}.docx`);
+    const docPath = docxPathForId(id);
 
     // 检查文件是否存在
     let fileExists = false;

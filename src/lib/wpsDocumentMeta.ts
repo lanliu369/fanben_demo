@@ -1,8 +1,12 @@
 import fs from 'fs/promises';
 import path from 'path';
 import JSZip from 'jszip';
-
-const DOCS_DIR = path.join(process.cwd(), 'public', 'documents');
+import {
+  DOCS_DIR,
+  ensureDocumentsDir,
+  isImportTemplateId,
+  PLACEHOLDER_DOCX_MAX_BYTES,
+} from '@/lib/documentsDir';
 
 function escapeXml(text: string): string {
   return text
@@ -63,7 +67,7 @@ export async function readWpsRecord(fileId: string): Promise<WpsFileRecord | nul
 }
 
 export async function writeWpsRecord(fileId: string, rec: WpsFileRecord): Promise<void> {
-  await fs.mkdir(DOCS_DIR, { recursive: true });
+  ensureDocumentsDir();
   await fs.writeFile(metaPath(fileId), JSON.stringify(rec, null, 0), 'utf-8');
 }
 
@@ -92,31 +96,64 @@ async function writeMinimalDocx(filePath: string, title: string): Promise<void> 
   await fs.writeFile(filePath, buf);
 }
 
+async function metaFromExistingDocx(
+  fileId: string,
+  displayName: string,
+  docx: string,
+): Promise<WpsFileRecord> {
+  const stat = await fs.stat(docx);
+  const now = Math.floor(Date.now() / 1000);
+  const uid = getWpsDefaultUserId();
+  const baseName = sanitizeWpsFileName(`${displayName || fileId}.docx`);
+  const rec: WpsFileRecord = {
+    version: 1,
+    name: baseName.endsWith('.docx') ? baseName : `${baseName}.docx`,
+    creator_id: uid,
+    modifier_id: uid,
+    create_time: now,
+    modify_time: Math.floor(stat.mtimeMs / 1000),
+  };
+  await writeWpsRecord(fileId, rec);
+  return rec;
+}
+
+/**
+ * WPS 回调专用：docx 必须已存在，禁止自动写入占位稿（否则 WPS 会锁定空白文档）。
+ */
+export async function requireDocxAndMeta(fileId: string, displayName?: string): Promise<WpsFileRecord> {
+  const docx = path.join(DOCS_DIR, `${fileId}.docx`);
+  let stat: Awaited<ReturnType<typeof fs.stat>>;
+  try {
+    stat = await fs.stat(docx);
+  } catch {
+    throw new Error(`docx missing: ${fileId}`);
+  }
+
+  if (isImportTemplateId(fileId) && stat.size < PLACEHOLDER_DOCX_MAX_BYTES) {
+    throw new Error(`import docx placeholder: ${fileId}`);
+  }
+
+  let rec = await readWpsRecord(fileId);
+  if (!rec) {
+    rec = await metaFromExistingDocx(fileId, displayName || fileId, docx);
+  }
+  return rec;
+}
+
+/** 新建空白文档时使用；勿在 WPS download / file-info 回调中调用 */
 export async function ensureDocxAndMeta(fileId: string, displayName: string): Promise<WpsFileRecord> {
   const docx = path.join(DOCS_DIR, `${fileId}.docx`);
   let rec = await readWpsRecord(fileId);
-  const now = Math.floor(Date.now() / 1000);
-  const uid = getWpsDefaultUserId();
   try {
     await fs.access(docx);
   } catch {
-    await fs.mkdir(DOCS_DIR, { recursive: true });
+    ensureDocumentsDir();
     const safeTitle = displayName.replace(/[\\/:*?"<>|]/g, '').slice(0, 120) || fileId;
     await writeMinimalDocx(docx, safeTitle);
   }
 
   if (!rec) {
-    const stat = await fs.stat(docx);
-    const baseName = sanitizeWpsFileName(`${displayName || fileId}.docx`);
-    rec = {
-      version: 1,
-      name: baseName.endsWith('.docx') ? baseName : `${baseName}.docx`,
-      creator_id: uid,
-      modifier_id: uid,
-      create_time: now,
-      modify_time: Math.floor(stat.mtimeMs / 1000),
-    };
-    await writeWpsRecord(fileId, rec);
+    rec = await metaFromExistingDocx(fileId, displayName, docx);
   }
   return rec;
 }
@@ -124,7 +161,7 @@ export async function ensureDocxAndMeta(fileId: string, displayName: string): Pr
 export async function bumpVersionAfterSave(fileId: string, name: string): Promise<WpsFileRecord> {
   const prev =
     (await readWpsRecord(fileId)) ??
-    (await ensureDocxAndMeta(fileId, name.replace(/\.docx$/i, '')));
+    (await requireDocxAndMeta(fileId, name.replace(/\.docx$/i, '')));
   let safeName = sanitizeWpsFileName(name);
   if (!safeName.toLowerCase().endsWith('.docx')) {
     safeName = `${safeName}.docx`;

@@ -11,8 +11,7 @@ import {
 import { extractDocxHeading } from '@/lib/docx';
 import { buildWpsFileInfo, bumpVersionAfterSave } from '@/lib/wpsDocumentMeta';
 import { revokeUploadTicket } from '@/lib/wpsUploadTicket';
-
-const DOCS_DIR = path.join(process.cwd(), 'public', 'documents');
+import { docxPathForId, DOCS_DIR } from '@/lib/documentsDir';
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ file_id: string }> }) {
   const { file_id } = await params;
@@ -48,7 +47,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ fil
 
   try {
     const rec = await bumpVersionAfterSave(file_id, name);
-    const docxPath = path.join(DOCS_DIR, `${file_id}.docx`);
+    const docxPath = docxPathForId(file_id);
     try {
       const title = await extractDocxHeading(docxPath);
       if (title) {

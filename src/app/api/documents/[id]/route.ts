@@ -2,8 +2,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 import JSZip from 'jszip';
+import { bumpVersionAfterSave } from '@/lib/wpsDocumentMeta';
+import {
+  DOCS_DIR,
+  ensureDocumentsDir,
+  docxPathForId,
+  isImportTemplateId,
+  PLACEHOLDER_DOCX_MAX_BYTES,
+} from '@/lib/documentsDir';
 
-const DOCS_DIR = path.join(process.cwd(), 'public', 'documents');
+/** 超过此大小的 docx 不再做 strip/sanitize，避免 JSZip 重打包后体积异常且 WPS 打开空白 */
+const DOCX_SANITIZE_MAX_BYTES = 256 * 1024;
 
 function escapeXml(text: string): string {
   return text
@@ -103,8 +112,28 @@ async function sanitizeDocxBuffer(buffer: Buffer): Promise<Buffer> {
 }
 
 // 确保文档目录存在
-if (!fs.existsSync(DOCS_DIR)) {
-  fs.mkdirSync(DOCS_DIR, { recursive: true });
+ensureDocumentsDir();
+
+// HEAD /api/documents/[id] - 探测本地 docx 是否存在（不创建占位文件）
+export async function HEAD(
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const { id } = await params;
+  const filePath = path.join(DOCS_DIR, `${id}.docx`);
+
+  if (!fs.existsSync(filePath)) {
+    return new NextResponse(null, { status: 404 });
+  }
+
+  const stat = fs.statSync(filePath);
+  return new NextResponse(null, {
+    status: 200,
+    headers: {
+      'Content-Length': String(stat.size),
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    },
+  });
 }
 
 // GET /api/documents/[id] - 下载文档
@@ -113,9 +142,12 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const filePath = path.join(DOCS_DIR, `${id}.docx`);
+  const filePath = docxPathForId(id);
 
   if (!fs.existsSync(filePath)) {
+    if (isImportTemplateId(id)) {
+      return new NextResponse(null, { status: 404 });
+    }
     // 文件不存在时，返回空白模板
     const templatePath = path.join(DOCS_DIR, 'template.docx');
     if (fs.existsSync(templatePath)) {
@@ -156,14 +188,36 @@ export async function POST(
   const body = await request.json().catch(() => ({}));
   const { content } = body as { content?: string };
 
-  const filePath = path.join(DOCS_DIR, `${id}.docx`);
-  fs.mkdirSync(DOCS_DIR, { recursive: true });
+  const filePath = docxPathForId(id);
+  ensureDocumentsDir();
 
   // 如果传入 base64 内容，写入文件
   if (content) {
     const buffer = Buffer.from(content, 'base64');
-    const sanitized = await sanitizeDocxBuffer(buffer).catch(() => buffer);
+    if (isImportTemplateId(id) && buffer.length < PLACEHOLDER_DOCX_MAX_BYTES) {
+      return NextResponse.json(
+        { error: 'import_docx_too_small', detail: '导入 docx 体积异常，请重新导入完整文件' },
+        { status: 400 },
+      );
+    }
+    const sanitized =
+      buffer.length <= DOCX_SANITIZE_MAX_BYTES
+        ? await sanitizeDocxBuffer(buffer).catch(() => buffer)
+        : buffer;
     fs.writeFileSync(filePath, sanitized);
+    try {
+      const metaPath = path.join(DOCS_DIR, `${id}.wps.json`);
+      if (fs.existsSync(metaPath)) {
+        fs.unlinkSync(metaPath);
+      }
+    } catch {
+      /* 重置 WPS 版本元数据，避免沿用过期空白会话 */
+    }
+    try {
+      await bumpVersionAfterSave(id, `${id}.docx`);
+    } catch (verErr) {
+      console.warn('[documents POST] bump version failed:', verErr);
+    }
   } else {
     return NextResponse.json({ error: 'content is required' }, { status: 400 });
   }

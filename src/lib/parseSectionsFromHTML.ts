@@ -10,12 +10,8 @@ export function parseSectionsFromHTML(html: string, templateId: string): Templat
   const appendContentToCurrent = (el: HTMLElement) => {
     const current = stack[stack.length - 1];
     if (!current) return false;
-    if (el.classList.contains('quoted-block')) {
-      current.textFragmentId = el.getAttribute('data-text-fragment-id') || undefined;
-      current.content += el.innerHTML;
-    } else {
-      current.content += el.outerHTML;
-    }
+    // 资源引用块保留完整 outerHTML（含 data-text-fragment-id），便于块级高亮、同步与解除关联
+    current.content += el.outerHTML;
     return true;
   };
 

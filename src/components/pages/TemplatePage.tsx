@@ -37,6 +37,7 @@ import { FormSelect } from '@/components/ui/FormSelect';
 import { resolveSectionRichHtml } from '@/lib/resolveTemplateSectionHtml';
 import { parseSectionsFromHTML } from './TemplateEditor';
 import { WpsTemplateEditor } from '@/components/editor/WpsTemplateEditor';
+import { saveTemplateDocxCache } from '@/lib/templateDocxCache';
 import { SystemDialog } from '@/components/ui/SystemDialog';
 import { ModalOverlay } from '@/components/ui/ModalOverlay';
 import { SystemTooltip } from '@/components/ui/SystemTooltip';
@@ -2090,6 +2091,26 @@ function ImportDocumentModal({ meta, templates, onClose, onBack, onImported }: I
         variables: [],
       };
     });
+
+    if (file.name.toLowerCase().endsWith('.docx')) {
+      try {
+        const content = await blobToBase64(file);
+        saveTemplateDocxCache(importedTemplates[0]?.id ?? `import-${baseTs}-0`, content);
+        await Promise.all(
+          importedTemplates.map((tpl) => {
+            saveTemplateDocxCache(tpl.id, content);
+            return fetch(`/api/documents/${encodeURIComponent(tpl.id)}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ content }),
+            });
+          }),
+        );
+      } catch {
+        /* 编辑器打开时会再次尝试上传 */
+      }
+    }
+
     onImported(importedTemplates, file);
   };
 

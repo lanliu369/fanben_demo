@@ -1,12 +1,13 @@
 import JSZip from 'jszip';
 import fs from 'fs/promises';
 import path from 'path';
+import { DOCS_DIR } from '@/lib/documentsDir';
 
 /**
  * 创建包含指定标题的 DOCX 文件
  */
 export async function createDocxWithHeading(filePath: string, title: string): Promise<void> {
-  const templatePath = path.join(process.cwd(), 'public/documents/template.docx');
+  const templatePath = path.join(DOCS_DIR, 'template.docx');
   const templateBuffer = await fs.readFile(templatePath);
   const zip = await JSZip.loadAsync(templateBuffer);
 

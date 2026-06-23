@@ -8,8 +8,11 @@ import { getGlobalTemplateVariables, getMockTextFragments } from '@/lib/mockData
 import { resolveTemplateLotLevelId } from '@/lib/classification';
 import { textFragmentAppliesToTemplate } from '@/lib/textFragmentLotScope';
 import { sortByCreatedAtDesc } from '@/lib/sortByCreatedAtDesc';
-import { applyCanonicalResourceBodiesToSections, buildSectionsHtmlWithResources } from '@/lib/resolveTemplateSectionHtml';
+import { applyCanonicalResourceBodiesToSections, buildSectionsHtmlWithResources, detachManuallyEditedResourceSections } from '@/lib/resolveTemplateSectionHtml';
 import { expandNestedResourceEmbeds } from '@/lib/resourceEmbedHtml';
+import { buildResourceInsertHtml } from '@/lib/quotedBlockHtml';
+import { saveTemplateDocxCache, loadTemplateDocxCache } from '@/lib/templateDocxCache';
+import { IMPORT_DOCX_MIN_BYTES } from '@/lib/documentStorageConstants';
 import { normalizePasteHtmlForWps } from '@/lib/wpsPasteHtmlNormalize';
 import { parseSectionsFromHTML } from '@/lib/parseSectionsFromHTML';
 import { mergeParsedSectionsWithPrevious } from '@/lib/mergeParsedTemplateSections';
@@ -45,37 +48,19 @@ function escapeHtml(raw: string) {
     .replace(/'/g, '&#39;');
 }
 
-/** 变量库插入正文：独立段落 + 高亮展示变量名称（data-template-variable 保留 key 供检索） */
+/** 变量库插入正文：行内 span，不包段落，避免破坏当前行/表格单元格格式 */
 function buildVariableInsertHtml(v: TemplateVariable): string {
   const key = v.key.trim();
   const displayName = (v.name?.trim() || key).trim();
   const k = escapeHtml(key);
   const d = escapeHtml(displayName);
   return (
-    `<p style="margin:0.35em 0;line-height:1.75;text-indent:0;" data-oo-insert="variable">` +
-    `<span data-template-variable="${k}" title="${k}" ` +
-    `style="display:inline-block;padding:3px 10px;background:#dbeafe;color:#1e40af;border-radius:6px;font-size:14px;font-weight:500;border:1px solid #93c5fd;white-space:nowrap;">${d}</span>` +
-    `</p>`
+    `<span data-oo-insert="variable" data-template-variable="${k}" title="${k}" ` +
+    `style="display:inline;padding:2px 8px;background:#dbeafe;color:#1e40af;border-radius:6px;font-size:inherit;line-height:inherit;font-weight:500;border:1px solid #93c5fd;white-space:nowrap;vertical-align:baseline;">${d}</span>`
   );
 }
 
-/** 侧栏插入资源：只插入正文，不带 Tab/卡片标题装饰；若正文为 HTML 则保留格式 */
-function formatResourceInsertPayload(content: string) {
-  const trimmed = (content ?? '').trim();
-  if (!trimmed) {
-    return { plainBlock: '', htmlBlock: '' as string | undefined };
-  }
-  const looksLikeHtml = /<[a-z][\s\S]*>/i.test(trimmed);
-  const plainBlock = toInsertPlainText(content);
-  let htmlBlock: string | undefined;
-  if (looksLikeHtml) {
-    htmlBlock = `<div data-resource-insert="1">${trimmed}</div>`;
-  } else if (plainBlock) {
-    htmlBlock = `<div data-resource-insert="1" style="white-space:pre-wrap;color:#334155;line-height:1.7;">${escapeHtml(plainBlock).replace(/\n/g, '<br/>')}</div>`;
-  }
-  return { plainBlock, htmlBlock };
-}
-
+/** 侧栏插入资源：见 buildResourceInsertHtml（高亮引用块 + textFragmentId） */
 function toJsStringLiteral(raw: string) {
   return raw
     .replace(/\\/g, '\\\\')
@@ -325,6 +310,48 @@ function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
+/** 占位 docx（仅含标题/id）通常小于 8KB；有章节正文时应重新生成 */
+const PLACEHOLDER_DOCX_MAX_BYTES = 8192;
+
+function templateHasSectionBody(sections: TemplateSection[]): boolean {
+  const walk = (secs: TemplateSection[]): boolean =>
+    secs.some((s) => {
+      const plain = (s.content ?? '').replace(/<[^>]+>/g, '').replace(/\s+/g, '').trim();
+      if (plain.length > 0) return true;
+      if (s.title.trim()) return true;
+      return Boolean(s.children?.length && walk(s.children));
+    });
+  return walk(sections);
+}
+
+async function probeLocalDocx(id: string): Promise<{ exists: boolean; size: number }> {
+  const r = await fetch(`/api/documents/${encodeURIComponent(id)}`, { method: 'HEAD' });
+  const raw = r.headers.get('content-length');
+  const size = raw ? parseInt(raw, 10) : 0;
+  return { exists: r.ok, size: Number.isFinite(size) ? size : 0 };
+}
+
+async function uploadDocxBase64(templateId: string, base64: string): Promise<void> {
+  const uploadResp = await fetch(`/api/documents/${encodeURIComponent(templateId)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content: base64 }),
+  });
+  if (!uploadResp.ok) {
+    throw new Error('上传 DOCX 失败，无法初始化文档');
+  }
+}
+
+async function uploadDocxFromTemplateSections(tpl: Template): Promise<void> {
+  const fragments = getMockTextFragments();
+  const html = buildSectionsHtmlWithResources(tpl.sections, tpl, fragments);
+  const docBlob = await asBlob(
+    `<html><body>${html || `<h1>${escapeHtml(tpl.name)}</h1>`}</body></html>`,
+  ) as Blob;
+  const content = await blobToBase64(docBlob);
+  await uploadDocxBase64(tpl.id, content);
+}
+
 export function WpsTemplateEditor({ template, onBack, onSave, initialFile }: WpsTemplateEditorProps) {
   const globalLoading = useGlobalLoading();
   const [loading, setLoading] = useState(true);
@@ -367,23 +394,69 @@ export function WpsTemplateEditor({ template, onBack, onSave, initialFile }: Wps
     return getGlobalTemplateVariables();
   }, [resourceDataTick]);
 
-  /** 金山 WPS / 本地稿统一走服务端导出（优先 mammoth 读磁盘 docx，见 export-html） */
-  const requestHtmlFromEditor = useCallback((): Promise<string> => {
-    const id = templateRef.current.id;
-    return (async () => {
+  /** 金山 WPS / 本地稿：先 flush 落盘，再 mammoth 导出；无 docx 时从范本章节重建 */
+  const ensureLocalDocxFromTemplate = useCallback(async (tpl: Template) => {
+    await uploadDocxFromTemplateSections(tpl);
+  }, []);
+
+  const flushWpsDocumentBeforeExport = useCallback(async () => {
+    const inst = editorInstanceRef.current as WebOfficeSdkInstance | null;
+    if (!inst?.save) {
+      return;
+    }
+    try {
+      await awaitMaybe(inst.ready?.() as Promise<void> | void);
+      const outcome = await awaitMaybe(inst.save());
+      const status = outcome?.result;
+      if (status === 'ok') {
+        await sleep(900);
+      } else if (status === 'nochange') {
+        await sleep(200);
+      }
+    } catch (e) {
+      console.warn('[WebOffice] 保存前 flush 失败', e);
+    }
+  }, []);
+
+  const requestHtmlFromEditor = useCallback(async (): Promise<string> => {
+    const tpl = templateRef.current;
+    const id = tpl.id;
+
+    await flushWpsDocumentBeforeExport();
+
+    const tryExport = async () => {
       const r = await fetch(`/api/documents/${encodeURIComponent(id)}/export-html`, { method: 'POST' });
       if (!r.ok) {
-        let extra = '';
-        try {
-          extra = await r.text();
-        } catch {
-          /* ignore */
-        }
-        throw new Error(`导出 HTML 失败（HTTP ${r.status}）${extra ? ` — ${extra.slice(0, 240)}` : ''}`);
+        return { ok: false as const, status: r.status, text: await r.text().catch(() => '') };
       }
-      return r.text();
-    })();
-  }, []);
+      return { ok: true as const, html: await r.text() };
+    };
+
+    let exported = await tryExport();
+    if (!exported.ok && exported.status === 404) {
+      await ensureLocalDocxFromTemplate(tpl);
+      await flushWpsDocumentBeforeExport();
+      exported = await tryExport();
+    }
+
+    if (exported.ok && exported.html.trim()) {
+      return exported.html;
+    }
+
+    const fragments = getMockTextFragments();
+    const fallbackHtml = buildSectionsHtmlWithResources(tpl.sections, tpl, fragments);
+    if (fallbackHtml.trim()) {
+      setOoConnectionHint(
+        '未找到本地 docx 或导出失败，已用范本章节数据保存；若 WPS 内刚编辑过，请先确认编辑器已加载并成功保存后再试。',
+      );
+      return fallbackHtml;
+    }
+
+    const extra = !exported.ok ? exported.text : '';
+    throw new Error(
+      `导出 HTML 失败${!exported.ok ? `（HTTP ${exported.status}）` : ''}${extra ? ` — ${extra.slice(0, 240)}` : ''}`,
+    );
+  }, [ensureLocalDocxFromTemplate, flushWpsDocumentBeforeExport]);
 
   const handleSave = useCallback(async () => {
     const tpl = templateRef.current;
@@ -397,6 +470,7 @@ export function WpsTemplateEditor({ template, onBack, onSave, initialFile }: Wps
       const fragments = getMockTextFragments();
       let merged =
         parsed.length > 0 ? mergeParsedSectionsWithPrevious(tpl.sections, parsed) : tpl.sections;
+      merged = detachManuallyEditedResourceSections(merged, tpl, fragments);
       merged = applyCanonicalResourceBodiesToSections(merged, tpl, fragments);
       const resolvedVersion = editorVersion.trim() || (tpl.version ?? 'V1.0').trim() || 'V1.0';
       onSave({
@@ -864,7 +938,7 @@ export function WpsTemplateEditor({ template, onBack, onSave, initialFile }: Wps
     /** 嵌入了其它资源的正文：先按范本标段展开占位，再规范化边框（避免 WPS 里仍为虚线参考线） */
     const resolved = expandNestedResourceEmbeds(item.copyPayload, resolveTemplateLotLevelId(template), allFragments);
     const forWps = normalizePasteHtmlForWps(resolved);
-    const { plainBlock, htmlBlock } = formatResourceInsertPayload(forWps);
+    const { plainBlock, htmlBlock } = buildResourceInsertHtml(forWps, item.id);
     const inserted = await insertTextAtCursor(plainBlock, item.title, htmlBlock, { suppressSidebarHints: true });
     return { inserted: Boolean(inserted), plainBlock, htmlBlock };
   }, [insertTextAtCursor, template.lotLevelId, allFragments]);
@@ -911,54 +985,62 @@ export function WpsTemplateEditor({ template, onBack, onSave, initialFile }: Wps
     const hostEl = editorHostRef.current;
 
     const ensureRemoteDocument = async () => {
+      const tpl = templateRef.current;
+      const id = tpl.id;
+      const hasBody = templateHasSectionBody(tpl.sections);
+      const isImport = id.startsWith('import-');
+
       if (initialFile && initialFile.name.toLowerCase().endsWith('.docx')) {
-        // 导入 DOCX 时必须以原文件覆盖远端文档，不能依赖 GET 存在性判断。
-        // 否则后端 GET 的自动兜底会先创建空白文档，导致导入内容丢失。
         const fileBase64 = await blobToBase64(initialFile);
-        const uploadResp = await fetch(`/api/documents/${template.id}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content: fileBase64 }),
-        });
-        if (!uploadResp.ok) {
-          throw new Error('导入 DOCX 失败，无法初始化文档');
+        await uploadDocxBase64(id, fileBase64);
+        saveTemplateDocxCache(id, fileBase64);
+      } else if (isImport) {
+        const cached = loadTemplateDocxCache(id);
+        if (cached) {
+          await uploadDocxBase64(id, cached);
+        } else {
+          const probe = await probeLocalDocx(id);
+          if (!probe.exists || probe.size < IMPORT_DOCX_MIN_BYTES) {
+            throw new Error(
+              '未找到导入的 docx 缓存。请返回范本列表，重新导入「02-国家电投…202603.docx」。',
+            );
+          }
         }
       } else {
-        const existing = await fetch(`/api/documents/${template.id}`, { method: 'GET' });
-        if (existing.ok) {
-          return;
-        }
-
-        try {
-          const fragments = getMockTextFragments();
-          const html = buildSectionsHtmlWithResources(template.sections, template, fragments);
-          const docBlob = await asBlob(`<html><body>${html || `<h1>${template.name}</h1>`}</body></html>`) as Blob;
-          const content = await blobToBase64(docBlob);
-
-          const createResp = await fetch(`/api/documents/${template.id}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ content }),
-          });
-          if (!createResp.ok) {
-            throw new Error('根据内容生成 DOCX 失败');
+        const cached = loadTemplateDocxCache(id);
+        if (cached) {
+          await uploadDocxBase64(id, cached);
+        } else if (hasBody) {
+          const probe = await probeLocalDocx(id);
+          const needsRebuild =
+            !probe.exists || probe.size < PLACEHOLDER_DOCX_MAX_BYTES;
+          if (needsRebuild) {
+            await uploadDocxFromTemplateSections(tpl);
           }
-        } catch {
-          // 回退到最小可用文档，避免因转换失败导致编辑器无法打开
-          const fallbackResp = await fetch(`/api/documents/${template.id}/heading`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ title: template.name || '导入文档' }),
-          });
-          if (!fallbackResp.ok) {
-            throw new Error('回退文档创建失败');
+        } else {
+          const probe = await probeLocalDocx(id);
+          if (!probe.exists) {
+            const fallbackResp = await fetch(`/api/documents/${encodeURIComponent(id)}/heading`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ title: tpl.name || '导入文档' }),
+            });
+            if (!fallbackResp.ok) {
+              throw new Error('回退文档创建失败');
+            }
           }
         }
       }
 
-      const verifyResp = await fetch(`/api/documents/${template.id}`, { method: 'GET' });
+      const verifyResp = await fetch(`/api/documents/${encodeURIComponent(id)}`, { method: 'HEAD' });
       if (!verifyResp.ok) {
         throw new Error('文档初始化失败，请重试');
+      }
+      const size = parseInt(verifyResp.headers.get('content-length') ?? '0', 10);
+      if (isImport && size > 0 && size < IMPORT_DOCX_MIN_BYTES) {
+        throw new Error(
+          `导入的 docx 体积异常（${size} 字节），可能未正确上传。请重新导入「02-国家电投…202603.docx」`,
+        );
       }
     };
 
@@ -982,7 +1064,24 @@ export function WpsTemplateEditor({ template, onBack, onSave, initialFile }: Wps
           token?: string;
           endpoint?: string;
           configured: boolean;
+          callbackPublicBaseConfigured?: boolean;
+          callbackPublicBaseReachable?: boolean;
+          callbackPublicBaseUrl?: string;
+          callbackGatewayExample?: string;
         };
+
+        if (!init.callbackPublicBaseConfigured) {
+          throw new Error(
+            '本地开发须配置 WPS_CALLBACK_PUBLIC_BASE_URL（Cloudflare 隧道 HTTPS 地址）。运行 npm run tunnel:cloudflare 获取地址，写入 .env.local 后重启 npm run dev。未配置时 WPS 云端无法下载 docx，编辑器会空白。',
+          );
+        }
+
+        if (init.callbackPublicBaseConfigured && init.callbackPublicBaseReachable === false) {
+          const url = init.callbackPublicBaseUrl ?? '（未返回）';
+          throw new Error(
+            `WPS 回调公网地址不可达：${url}。Quick Tunnel 每次重启会换域名，请：① 终端运行 npm run tunnel:cloudflare；② 复制新的 https://…trycloudflare.com 到 .env.local 的 WPS_CALLBACK_PUBLIC_BASE_URL；③ 金山控制台「回调网关」同步更新；④ 重启 npm run dev 后再打开编辑器。`,
+          );
+        }
 
         if (!init.configured) {
           throw new Error(
@@ -1041,6 +1140,7 @@ export function WpsTemplateEditor({ template, onBack, onSave, initialFile }: Wps
             endpoint: init.endpoint || 'https://o.wpsgo.com',
             ...(init.token ? { token: init.token } : {}),
             isListenResize: true,
+            customArgs: { w_reload: String(Date.now()) },
           }) as WebOfficeSdkInstance;
         } catch (initErr) {
           const msg = initErr instanceof Error ? initErr.message : String(initErr);
