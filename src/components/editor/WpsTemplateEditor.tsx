@@ -8,7 +8,7 @@ import { getGlobalTemplateVariables, getMockTextFragments } from '@/lib/mockData
 import { resolveTemplateLotLevelId } from '@/lib/classification';
 import { textFragmentAppliesToTemplate } from '@/lib/textFragmentLotScope';
 import { sortByCreatedAtDesc } from '@/lib/sortByCreatedAtDesc';
-import { applyCanonicalResourceBodiesToSections, buildSectionsHtmlWithResources, detachManuallyEditedResourceSections } from '@/lib/resolveTemplateSectionHtml';
+import { buildSectionsHtmlWithResources, detachManuallyEditedResourceSections, syncUnchangedLinkedResourcesOnSave } from '@/lib/resolveTemplateSectionHtml';
 import { expandNestedResourceEmbeds } from '@/lib/resourceEmbedHtml';
 import { buildResourceInsertHtml } from '@/lib/quotedBlockHtml';
 import { saveTemplateDocxCache, loadTemplateDocxCache } from '@/lib/templateDocxCache';
@@ -470,8 +470,8 @@ export function WpsTemplateEditor({ template, onBack, onSave, initialFile }: Wps
       const fragments = getMockTextFragments();
       let merged =
         parsed.length > 0 ? mergeParsedSectionsWithPrevious(tpl.sections, parsed) : tpl.sections;
-      merged = detachManuallyEditedResourceSections(merged, tpl, fragments);
-      merged = applyCanonicalResourceBodiesToSections(merged, tpl, fragments);
+      merged = detachManuallyEditedResourceSections(merged, tpl, fragments, tpl.sections);
+      merged = syncUnchangedLinkedResourcesOnSave(merged, tpl, fragments);
       const resolvedVersion = editorVersion.trim() || (tpl.version ?? 'V1.0').trim() || 'V1.0';
       onSave({
         ...tpl,
@@ -1266,7 +1266,7 @@ export function WpsTemplateEditor({ template, onBack, onSave, initialFile }: Wps
 
           {!loading && !error && (
             <div className="absolute bottom-3 right-3 max-w-sm px-2 py-1.5 rounded bg-slate-900/75 text-white text-[11px] leading-snug">
-              保存说明：解析章节结构并保存；引用资源的章节以资源管理正文为准（编辑器内改动不保留）。
+              保存说明：解析章节结构并保存；手动修改过的引用资源块将脱离同步并去掉高亮，未改动的引用块仍随资源库更新。
             </div>
           )}
         </div>
@@ -1278,7 +1278,7 @@ export function WpsTemplateEditor({ template, onBack, onSave, initialFile }: Wps
             {linkedTextCards.length > 0 && (
               <div className="mt-2 rounded-lg border border-blue-100 bg-blue-50/90 px-3 py-2 text-[11px] text-blue-900 leading-relaxed">
                 <span className="font-medium text-blue-950">引用资源：</span>
-                正文以资源管理中的当前稿为准；本页保存时会用资源稿覆盖引用章节，更新正文请至资源管理。
+                插入后显示橙色高亮；若在正文中手动修改并保存，将脱离资源同步；未改动的块仍随资源管理更新。
               </div>
             )}
           </div>

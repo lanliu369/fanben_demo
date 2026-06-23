@@ -9,6 +9,11 @@ function escapeHtml(raw: string) {
 
 export const QUOTED_BLOCK_CLASS = 'quoted-block';
 
+/** 插入块顶部固定文案（WPS/mammoth 导出后可能仅剩纯文本） */
+export const RESOURCE_INSERT_LABEL_MARK = '【引用资源】';
+
+const RESOURCE_INSERT_HINT_MARK = '请勿直接编辑';
+
 /** WPS / 导出 HTML 无 ProseMirror 样式表时的引用块外框（含表格场景） */
 export function quotedBlockWrapperStyle(hasTable = false): string {
   const common = [
@@ -119,12 +124,127 @@ export function normalizeComparableHtml(html: string): string {
     .trim();
 }
 
+/** 去标签后的纯文本比对（mammoth 导出结构不稳定时使用） */
+export function normalizeComparablePlainText(html: string): string {
+  return normalizeComparableHtml(html)
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** 从 HTML 中提取仍关联的 textFragmentId 列表 */
+export function extractFragmentIdsFromHtml(html: string): string[] {
+  const ids = new Set<string>();
+  const re = /data-text-fragment-id=["']([^"']+)["']/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) !== null) {
+    const id = m[1]?.trim();
+    if (id) ids.add(id);
+  }
+  return [...ids];
+}
+
+function contentDiffersFromCanonical(localHtml: string, canonical: string): boolean {
+  const local = normalizeComparablePlainText(localHtml);
+  const canon = normalizeComparablePlainText(canonical);
+  if (!local && !canon) return false;
+  if (!canon) return Boolean(local);
+  return local !== canon;
+}
+
 function unlinkResourceBlockElement(el: HTMLElement): void {
   el.removeAttribute('data-text-fragment-id');
   el.removeAttribute('data-resource-insert');
   el.classList.remove(QUOTED_BLOCK_CLASS);
   el.removeAttribute('style');
   el.querySelector('[data-resource-insert-label]')?.remove();
+}
+
+/** 去掉引用块高亮、提示条与关联属性，保留正文 */
+export function stripResourceMarkerAndChromeFromHtml(html: string): string {
+  const trimmed = html.trim();
+  if (!trimmed) return '';
+  if (typeof DOMParser === 'undefined') {
+    return trimmed
+      .replace(/<div[^>]*data-resource-insert-label[^>]*>[\s\S]*?<\/div>/gi, '')
+      .replace(/\s*style="[^"]*(?:fffbeb|f59e0b|dashed)[^"]*"/gi, '')
+      .replace(/\s*data-text-fragment-id="[^"]*"/gi, '')
+      .replace(/\s*data-resource-insert="[^"]*"/gi, '')
+      .replace(/\s*class="quoted-block"/gi, '')
+      .trim();
+  }
+
+  const doc = new DOMParser().parseFromString(`<div id="root">${trimmed}</div>`, 'text/html');
+  const root = doc.getElementById('root');
+  if (!root) return trimmed;
+
+  root.querySelectorAll('[data-text-fragment-id]').forEach((node) => {
+    unlinkResourceBlockElement(node as HTMLElement);
+  });
+
+  root.querySelectorAll('p, div, span').forEach((node) => {
+    const el = node as HTMLElement;
+    const text = el.textContent?.trim() ?? '';
+    if (
+      text.includes(RESOURCE_INSERT_LABEL_MARK) &&
+      (text.includes(RESOURCE_INSERT_HINT_MARK) || text.length < 120)
+    ) {
+      el.remove();
+    }
+  });
+
+  return root.innerHTML.trim();
+}
+
+function reconcileMammothExportedBlock(
+  html: string,
+  fragmentId: string,
+  canonical: string,
+  previousHtml: string,
+): string {
+  if (!html.includes(RESOURCE_INSERT_LABEL_MARK)) return html;
+  if (html.includes(`data-text-fragment-id="${fragmentId}"`)) return html;
+  if (!previousHtml.includes(`data-text-fragment-id="${fragmentId}"`)) return html;
+
+  const stripped = stripResourceMarkerAndChromeFromHtml(html);
+  if (contentDiffersFromCanonical(stripped, canonical)) {
+    return stripped;
+  }
+
+  const prevPlain = normalizeComparablePlainText(stripResourceInsertChrome(previousHtml));
+  const exportPlain = normalizeComparablePlainText(stripped);
+  const canonPlain = normalizeComparablePlainText(canonical);
+  const resourceOnlySection = exportPlain === canonPlain || prevPlain === canonPlain;
+
+  if (resourceOnlySection) {
+    return wrapQuotedResourceBlock(fragmentId, canonical);
+  }
+
+  return stripped;
+}
+
+/**
+ * 保存导出后 reconciling：属性仍在则 detach；mammoth 丢属性时按【引用资源】标记与正文 diff 解除或恢复关联。
+ */
+export function reconcileExportedResourceBlocksInHtml(
+  exportedHtml: string,
+  previousHtml: string,
+  canonicalByFragmentId: Map<string, string>,
+): string {
+  let html = detachEditedResourceBlocksInHtml(exportedHtml, canonicalByFragmentId);
+
+  const knownIds = new Set([
+    ...extractFragmentIdsFromHtml(previousHtml),
+    ...extractFragmentIdsFromHtml(exportedHtml),
+  ]);
+
+  for (const fid of knownIds) {
+    const canonical = canonicalByFragmentId.get(fid) ?? '';
+    if (!canonical.trim()) continue;
+    html = reconcileMammothExportedBlock(html, fid, canonical, previousHtml);
+  }
+
+  return html;
 }
 
 /** 手动改过正文的引用块：去掉关联属性，后续资源同步不再更新该块 */
@@ -150,7 +270,7 @@ export function detachEditedResourceBlocksInHtml(
       return;
     }
     const localInner = stripResourceInsertChrome(el.innerHTML);
-    if (normalizeComparableHtml(localInner) !== normalizeComparableHtml(canonical)) {
+    if (contentDiffersFromCanonical(localInner, canonical)) {
       unlinkResourceBlockElement(el);
     }
   });

@@ -3,9 +3,11 @@ import { resolveTemplateLotLevelId } from '@/lib/classification';
 import { bindingMatchesSection } from '@/lib/textBindingMatch';
 import { expandNestedResourceEmbeds } from '@/lib/resourceEmbedHtml';
 import {
-  detachEditedResourceBlocksInHtml,
-  normalizeComparableHtml,
+  normalizeComparablePlainText,
+  reconcileExportedResourceBlocksInHtml,
   stripResourceInsertChrome,
+  stripResourceMarkerAndChromeFromHtml,
+  syncResourceBlocksInHtml,
   wrapQuotedResourceBlock,
 } from '@/lib/quotedBlockHtml';
 
@@ -71,28 +73,61 @@ export function sectionBodyIsFromResource(
   return Boolean(hit && (hit.fragment.content ?? '').trim());
 }
 
+function sectionKey(title: string): string {
+  return title.trim() || '_empty_';
+}
+
+function buildPreviousSectionMap(
+  nodes: TemplateSection[],
+  ancestors: string[] = [],
+  map = new Map<string, TemplateSection>(),
+): Map<string, TemplateSection> {
+  for (const s of nodes) {
+    const seg = sectionKey(s.title);
+    const key = [...ancestors, seg].join('>');
+    if (!map.has(key)) {
+      map.set(key, s);
+    }
+    if (s.children?.length) {
+      buildPreviousSectionMap(s.children, [...ancestors, seg], map);
+    }
+  }
+  return map;
+}
+
 /**
- * 保存前：正文内引用块若已被手动修改，则去掉 data-text-fragment-id；整章资源引用若正文已偏离资源稿则解除章节级关联。
+ * 保存前：正文内引用块若已被手动修改，则去掉 data-text-fragment-id 与高亮；整章资源引用若正文已偏离资源稿则解除章节级关联。
  */
 export function detachManuallyEditedResourceSections(
   sections: TemplateSection[],
   template: Template,
   fragments: TextFragment[],
+  previousSections: TemplateSection[] = [],
+  ancestors: string[] = [],
 ): TemplateSection[] {
   const canonicalMap = canonicalByFragmentId(template, fragments);
+  const prevMap = buildPreviousSectionMap(previousSections);
   return sections.map((s) => {
+    const seg = sectionKey(s.title);
+    const key = [...ancestors, seg].join('>');
+    const prev = prevMap.get(key);
     const children = s.children?.length
-      ? detachManuallyEditedResourceSections(s.children, template, fragments)
+      ? detachManuallyEditedResourceSections(s.children, template, fragments, previousSections, [...ancestors, seg])
       : undefined;
 
-    let content = detachEditedResourceBlocksInHtml(s.content ?? '', canonicalMap);
+    let content = reconcileExportedResourceBlocksInHtml(
+      s.content ?? '',
+      prev?.content ?? '',
+      canonicalMap,
+    );
 
     let textFragmentId = s.textFragmentId;
-    if (textFragmentId && sectionBodyIsFromResource({ ...s, textFragmentId }, template, fragments)) {
+    if (textFragmentId && sectionBodyIsFromResource({ ...s, textFragmentId, content }, template, fragments)) {
       const canonical = canonicalMap.get(textFragmentId) ?? '';
       const local = stripResourceInsertChrome(content);
-      if (normalizeComparableHtml(local) !== normalizeComparableHtml(canonical)) {
+      if (contentDiffersFromCanonicalSection(local, canonical)) {
         textFragmentId = undefined;
+        content = stripResourceMarkerAndChromeFromHtml(content);
       }
     }
 
@@ -100,24 +135,59 @@ export function detachManuallyEditedResourceSections(
   });
 }
 
+function contentDiffersFromCanonicalSection(localHtml: string, canonical: string): boolean {
+  const localPlain = normalizeComparablePlainText(localHtml);
+  const canonPlain = normalizeComparablePlainText(canonical);
+  if (!localPlain && !canonPlain) return false;
+  if (!canonPlain) return Boolean(localPlain);
+  return localPlain !== canonPlain;
+}
+
 /**
- * 保存范本章节树时：凡仍关联资源的章节，正文强制与资源管理当前稿一致（未手动改动的引用块/章节）。
+ * 保存时：仅刷新仍关联且未手动改动的引用块/整章资源；已脱离块保留用户正文。
  */
+export function syncUnchangedLinkedResourcesOnSave(
+  sections: TemplateSection[],
+  template: Template,
+  fragments: TextFragment[],
+): TemplateSection[] {
+  const canonicalMap = canonicalByFragmentId(template, fragments);
+  return sections.map((s) => {
+    const children = s.children?.length
+      ? syncUnchangedLinkedResourcesOnSave(s.children, template, fragments)
+      : undefined;
+
+    let content = s.content ?? '';
+
+    for (const [fid, canonical] of canonicalMap) {
+      if (
+        content.includes(`data-text-fragment-id="${fid}"`) ||
+        content.includes(`data-text-fragment-id='${fid}'`)
+      ) {
+        content = syncResourceBlocksInHtml(content, fid, canonical);
+      }
+    }
+
+    if (s.textFragmentId && sectionBodyIsFromResource({ ...s, content }, template, fragments)) {
+      const fid = s.textFragmentId;
+      const canonical = canonicalMap.get(fid) ?? '';
+      const local = stripResourceInsertChrome(content);
+      if (!contentDiffersFromCanonicalSection(local, canonical)) {
+        content = wrapQuotedResourceBlock(fid, canonical);
+      }
+    }
+
+    return { ...s, content, children };
+  });
+}
+
+/** @deprecated 使用 syncUnchangedLinkedResourcesOnSave */
 export function applyCanonicalResourceBodiesToSections(
   sections: TemplateSection[],
   template: Template,
   fragments: TextFragment[],
 ): TemplateSection[] {
-  return sections.map((s) => {
-    const children = s.children?.length
-      ? applyCanonicalResourceBodiesToSections(s.children, template, fragments)
-      : undefined;
-    if (!sectionBodyIsFromResource(s, template, fragments)) {
-      return { ...s, children };
-    }
-    const canonical = resolveSectionRichHtml(s, template, fragments);
-    return { ...s, content: canonical, children };
-  });
+  return syncUnchangedLinkedResourcesOnSave(sections, template, fragments);
 }
 
 function canonicalByFragmentId(template: Template, fragments: TextFragment[]): Map<string, string> {
@@ -140,12 +210,35 @@ export function buildSectionsHtmlWithResources(
   fragments: TextFragment[],
   depth = 0,
 ): string {
+  const canonicalMap = canonicalByFragmentId(template, fragments);
   return sections
     .map((section) => {
-      let body = resolveSectionRichHtml(section, template, fragments);
-      if (section.textFragmentId && sectionBodyIsFromResource(section, template, fragments)) {
-        body = wrapQuotedResourceBlock(section.textFragmentId, body);
+      const stored = (section.content ?? '').trim();
+      let body: string;
+
+      if (
+        section.textFragmentId &&
+        sectionBodyIsFromResource(section, template, fragments) &&
+        !stored.includes('data-text-fragment-id')
+      ) {
+        body = wrapQuotedResourceBlock(
+          section.textFragmentId,
+          resolveSectionRichHtml(section, template, fragments),
+        );
+      } else if (stored) {
+        body = stored;
+        for (const [fid, canonical] of canonicalMap) {
+          if (body.includes(`data-text-fragment-id="${fid}"`) || body.includes(`data-text-fragment-id='${fid}'`)) {
+            body = syncResourceBlocksInHtml(body, fid, canonical);
+          }
+        }
+      } else {
+        body = resolveSectionRichHtml(section, template, fragments);
+        if (section.textFragmentId && sectionBodyIsFromResource(section, template, fragments)) {
+          body = wrapQuotedResourceBlock(section.textFragmentId, body);
+        }
       }
+
       const childrenHtml = section.children?.length
         ? buildSectionsHtmlWithResources(section.children, template, fragments, depth + 1)
         : '';
