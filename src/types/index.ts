@@ -74,13 +74,13 @@ export interface ClassificationStore {
   lotLevels: LotLevel[];
 }
 
-/** 品类管理页上传的 Excel 归档（元数据；文件二进制存 IndexedDB） */
+/** 品类管理页上传的原始文件归档（元数据；文件二进制存 IndexedDB） */
 export interface CategoryFileUpload {
   id: string;
-  /** 用户填写的归档名称 */
+  /** 由上传文件名解析（去扩展名） */
   name: string;
-  /** 版本号，如 V1.0 */
-  version: string;
+  /** @deprecated 历史数据可能仍有版本号，新上传不再填写 */
+  version?: string;
   originalFileName: string;
   mimeType: string;
   fileSize: number;

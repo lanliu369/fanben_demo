@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ClipboardList, Upload } from 'lucide-react';
+import { ClipboardList, FileSpreadsheet } from 'lucide-react';
 import type { ClassificationStore, LotLevel } from '@/types';
 import { appendDataAudit, getCategoryAuditLogs, getMockActor } from '@/lib/dataAudit';
 import { OperationLogDialog } from '@/components/ui/OperationLogDialog';
@@ -235,10 +235,10 @@ function CategoryPageContent() {
         </div>
         <div className={categoryUi.toolbarActions}>
           <button type="button" onClick={() => setShowFileUpload(true)} className={categoryUi.btnSecondary}>
-            <span className={categoryUi.toolbarIconGreen}>
-              <Upload className="w-3.5 h-3.5" />
+            <span className={categoryUi.toolbarIconBlue}>
+              <FileSpreadsheet className="w-3.5 h-3.5" />
             </span>
-            文件上传
+            查看原始文件
           </button>
           <button type="button" onClick={() => setShowLog(true)} className={categoryUi.btnSecondary}>
             <span className={categoryUi.toolbarIconSlate}>
@@ -292,17 +292,7 @@ function CategoryPageContent() {
             action: 'import',
             entityId: entry.id,
             label: entry.name,
-            detail: `上传 Excel ${entry.name} ${entry.version}（${entry.originalFileName}）`,
-            actor: getMockActor(),
-          });
-        }}
-        onDeleted={(entry) => {
-          appendDataAudit({
-            scope: 'category',
-            action: 'delete',
-            entityId: entry.id,
-            label: entry.name,
-            detail: `删除上传文件 ${entry.name} ${entry.version}`,
+            detail: `更新原始文件 ${entry.name}（${entry.originalFileName}）`,
             actor: getMockActor(),
           });
         }}

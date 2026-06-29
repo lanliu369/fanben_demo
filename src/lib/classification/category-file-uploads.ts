@@ -88,23 +88,22 @@ export function listCategoryFileUploads(): CategoryFileUpload[] {
   return [...readManifest()].sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt));
 }
 
+export function parseCategoryFileDisplayName(file: File): string {
+  const base = file.name.replace(/\.[^.]+$/i, '').trim();
+  return base || file.name.trim() || '未命名文件';
+}
+
 export async function saveCategoryFileUpload(input: {
-  name: string;
-  version: string;
   file: File;
   uploadedBy?: string;
 }): Promise<CategoryFileUpload> {
-  const name = input.name.trim();
-  const version = input.version.trim();
-  if (!name) throw new Error('请填写文件名称');
-  if (!version) throw new Error('请填写版本号');
-  if (!isCategoryExcelFile(input.file)) throw new Error('仅支持 Excel 文件（.xlsx / .xls）');
+  if (!isCategoryExcelFile(input.file)) throw new Error('仅支持 Excel 原始文件（.xlsx / .xls）');
 
+  const name = parseCategoryFileDisplayName(input.file);
   const id = `cat-file-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const entry: CategoryFileUpload = {
     id,
     name,
-    version,
     originalFileName: input.file.name,
     mimeType: input.file.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     fileSize: input.file.size,
@@ -123,11 +122,9 @@ export async function getCategoryFileUploadBlob(id: string): Promise<Blob | null
 }
 
 export function buildCategoryFileDownloadName(entry: CategoryFileUpload): string {
-  const base = entry.originalFileName.replace(/\.(xlsx|xls)$/i, '');
   const ext = entry.originalFileName.match(/\.(xlsx|xls)$/i)?.[0] ?? '.xlsx';
   const safeName = entry.name.replace(/[/\\?%*:|"<>]/g, '_');
-  const safeVer = entry.version.replace(/[/\\?%*:|"<>]/g, '_');
-  return `${safeName}_${safeVer}${ext}`;
+  return `${safeName}${ext}`;
 }
 
 export async function deleteCategoryFileUpload(id: string): Promise<boolean> {
