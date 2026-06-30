@@ -27,6 +27,7 @@ import {
   getFragmentTemplateUsage,
 } from '@/lib/mockData';
 import { LotScopePicker } from '@/components/resource/LotScopePicker';
+import { ResourceCategoryTreeNav } from '@/components/resource/ResourceCategoryTreeNav';
 import { appendDataAudit, getMockActor, getTextAuditLogs } from '@/lib/dataAudit';
 import { SystemDialog } from '@/components/ui/SystemDialog';
 import { OperationLogDialog } from '@/components/ui/OperationLogDialog';
@@ -44,41 +45,51 @@ const RichTextEditor = dynamic(() => import('@/components/RichTextEditor'), { ss
 const MODULE_TAG: Record<string, string> = {
   text: '文本',
   qualification: '资格',
+  'technical-spec': '技规',
   evaluation: '评标',
   'contract-clause': '合同',
 };
 
 /** 文本管理中「资源插入」可选类型（不含文本库本身） */
-type EmbedModuleFilter = 'all' | 'qualification' | 'evaluation' | 'contract-clause';
+type EmbedModuleFilter = 'all' | 'qualification' | 'technical-spec' | 'evaluation' | 'contract-clause';
 
 const EMBED_MODULE_FILTER_OPTIONS: { value: EmbedModuleFilter; label: string }[] = [
-  { value: 'all', label: '全部（资格 / 评标 / 合同）' },
+  { value: 'all', label: '全部（资格 / 技规 / 评标 / 合同）' },
   { value: 'qualification', label: '资格条件' },
+  { value: 'technical-spec', label: '技术规范' },
   { value: 'evaluation', label: '评标办法' },
   { value: 'contract-clause', label: '合同条款' },
 ];
 
+function resolveTextFragmentLotLevelId(text: TextFragment): string {
+  const ids = text.applicableLotLevelIds ?? text.applicableCategoryIds ?? [];
+  return ids[0] ?? '';
+}
+
+function isLegacyUniversalScope(text: TextFragment): boolean {
+  return (text.applicableToAllLotLevels ?? text.applicableToAllCategories) !== false;
+}
+
+function textFragmentMatchesBrowseLot(text: TextFragment, lotLevelId: string): boolean {
+  if (!lotLevelId) return false;
+  if (isLegacyUniversalScope(text)) return true;
+  return resolveTextFragmentLotLevelId(text) === lotLevelId;
+}
+
 function collectEligibleEmbedFragments(
   allFragments: TextFragment[],
   editing: TextFragment | null,
-  newUniversal: boolean,
-  newCategoryIds: string[],
+  scopeLotLevelId: string,
 ): TextFragment[] {
   const currentId = editing?.id ?? null;
-  const scopeUniversal = editing
-    ? (editing.applicableToAllLotLevels ?? editing.applicableToAllCategories) !== false
-    : newUniversal;
-  const scopeIds = editing
-    ? (editing.applicableLotLevelIds ?? editing.applicableCategoryIds ?? [])
-    : newCategoryIds;
+  const scopeId = editing ? resolveTextFragmentLotLevelId(editing) : scopeLotLevelId;
+  if (!scopeId) return [];
 
   return allFragments.filter((f) => {
     if (f.deletedAt) return false;
     if (currentId && f.id === currentId) return false;
-    if (scopeUniversal) return true;
-    if ((f.applicableToAllLotLevels ?? f.applicableToAllCategories) !== false) return true;
-    const oids = f.applicableLotLevelIds ?? f.applicableCategoryIds ?? [];
-    return oids.some((id) => scopeIds.includes(id));
+    if (isLegacyUniversalScope(f)) return true;
+    return resolveTextFragmentLotLevelId(f) === scopeId;
   });
 }
 
@@ -86,12 +97,10 @@ function collectEligibleEmbedFragments(
 
 interface TextPageProps {
   moduleName?: string;
-  moduleKey?: 'text' | 'qualification' | 'evaluation' | 'contract-clause';
-  /** 保存时自动同步到所有引用范本（资格条件/评标办法/合同条款默认开启，文本管理需手动同步） */
-  autoSyncOnSave?: boolean;
+  moduleKey?: 'text' | 'qualification' | 'technical-spec' | 'evaluation' | 'contract-clause';
 }
 
-export default function TextPage({ moduleName = '文本', moduleKey = 'text', autoSyncOnSave = false }: TextPageProps) {
+export default function TextPage({ moduleName = '文本', moduleKey = 'text' }: TextPageProps) {
   /** 仅文本管理保留「资源插入」；其余资源模块不展示该能力 */
   const isTextModulePage = moduleKey === 'text';
 
@@ -126,11 +135,11 @@ export default function TextPage({ moduleName = '文本', moduleKey = 'text', au
   const [searchQuery, setSearchQuery] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingText, setEditingText] = useState<TextFragment | null>(null);
-  const [formData, setFormData] = useState({ name: '', content: '', description: '' });
-  /** 适用标段范围（与招采分类管理叶子标段一致） */
-  const [applicableToAllLotLevels, setApplicableToAllLotLevels] = useState(true);
-  const [applicableLotLevelIds, setApplicableLotLevelIds] = useState<string[]>([]);
+  const [formData, setFormData] = useState({ name: '', content: '', description: '', slotName: '' });
+  /** 唯一适用品类（叶子节点 id） */
+  const [applicableLotLevelId, setApplicableLotLevelId] = useState('');
   const [scopeError, setScopeError] = useState<string | null>(null);
+  const [slotNameError, setSlotNameError] = useState<string | null>(null);
   /** 每次打开新建/编辑弹窗递增，用于强制重挂 LotScopePicker，避免展开态被 React 复用 */
   const [categoryPickerEpoch, setCategoryPickerEpoch] = useState(0);
 
@@ -142,16 +151,18 @@ export default function TextPage({ moduleName = '文本', moduleKey = 'text', au
 
   const [listPage, setListPage] = useState(1);
   const [listPageSize, setListPageSize] = useState(10);
+  /** 专用资源：左侧品类目录当前选中的叶子品类 */
+  const [browseLotLevelId, setBrowseLotLevelId] = useState('');
+  const [browseLotLevelName, setBrowseLotLevelName] = useState('');
 
-  const scopeInsertReady = applicableToAllLotLevels || applicableLotLevelIds.length > 0;
+  const scopeInsertReady = Boolean(applicableLotLevelId.trim());
 
   const eligibleEmbedFragments = useMemo(() => {
     if (!isTextModulePage) return [];
     const raw = collectEligibleEmbedFragments(
       allTexts.filter((t) => !t.deletedAt),
       editingText,
-      applicableToAllLotLevels,
-      applicableLotLevelIds,
+      applicableLotLevelId,
     );
     const nonTextResources = raw.filter((f) => (f.module ?? 'text') !== 'text');
     const byModule =
@@ -163,8 +174,7 @@ export default function TextPage({ moduleName = '文本', moduleKey = 'text', au
     isTextModulePage,
     allTexts,
     editingText,
-    applicableToAllLotLevels,
-    applicableLotLevelIds,
+    applicableLotLevelId,
     embedModuleFilter,
   ]);
 
@@ -246,14 +256,28 @@ export default function TextPage({ moduleName = '文本', moduleKey = 'text', au
     [selectedText?.content],
   );
 
+  const resourceCountByLotId = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const t of texts) {
+      if (isLegacyUniversalScope(t)) continue;
+      const id = resolveTextFragmentLotLevelId(t);
+      if (id) map.set(id, (map.get(id) ?? 0) + 1);
+    }
+    return map;
+  }, [texts]);
+
   const filteredTexts = useMemo(() => {
-    const filtered = texts.filter(
+    let pool = texts;
+    if (!isTextModulePage && browseLotLevelId) {
+      pool = texts.filter((t) => textFragmentMatchesBrowseLot(t, browseLotLevelId));
+    }
+    const filtered = pool.filter(
       (t) =>
         t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (t.description && t.description.toLowerCase().includes(searchQuery.toLowerCase())),
     );
     return sortByCreatedAtDesc(filtered);
-  }, [texts, searchQuery]);
+  }, [texts, searchQuery, isTextModulePage, browseLotLevelId]);
 
   const listTotalPages = Math.max(1, Math.ceil(filteredTexts.length / listPageSize));
   const safeListPage = Math.min(listPage, listTotalPages);
@@ -267,7 +291,18 @@ export default function TextPage({ moduleName = '文本', moduleKey = 'text', au
 
   useEffect(() => {
     setListPage(1);
-  }, [searchQuery, moduleKey]);
+  }, [searchQuery, moduleKey, browseLotLevelId]);
+
+  useEffect(() => {
+    if (isTextModulePage || !browseLotLevelId) return;
+    if (filteredTexts.length === 0) {
+      setSelectedText(null);
+      return;
+    }
+    if (!selectedText || !filteredTexts.some((t) => t.id === selectedText.id)) {
+      setSelectedText(filteredTexts[0]);
+    }
+  }, [browseLotLevelId, filteredTexts, isTextModulePage, selectedText]);
 
   useEffect(() => {
     if (listPage > listTotalPages) {
@@ -290,10 +325,10 @@ export default function TextPage({ moduleName = '文本', moduleKey = 'text', au
     setEmbedModalOpen(false);
     setEmbedModuleFilter('all');
     setEditingText(null);
-    setFormData({ name: '', content: '', description: '' });
-    setApplicableToAllLotLevels(true);
-    setApplicableLotLevelIds([]);
+    setFormData({ name: '', content: '', description: '', slotName: '' });
+    setApplicableLotLevelId(isTextModulePage ? '' : browseLotLevelId);
     setScopeError(null);
+    setSlotNameError(null);
     setCategoryPickerEpoch((n) => n + 1);
     setShowCreateModal(true);
   };
@@ -305,26 +340,51 @@ export default function TextPage({ moduleName = '文本', moduleKey = 'text', au
     setFormData({
       name: text.name,
       content: text.content ?? '',
-      description: text.description || ''
+      description: text.description || '',
+      slotName: text.slotName ?? '',
     });
-    setApplicableToAllLotLevels(
-      (text.applicableToAllLotLevels ?? text.applicableToAllCategories) !== false,
+    setApplicableLotLevelId(
+      isLegacyUniversalScope(text) ? '' : resolveTextFragmentLotLevelId(text),
     );
-    setApplicableLotLevelIds(text.applicableLotLevelIds ?? text.applicableCategoryIds ?? []);
     setScopeError(null);
+    setSlotNameError(null);
     setCategoryPickerEpoch((n) => n + 1);
     setShowCreateModal(true);
   };
 
   const scopePayload = () =>
     prepareTextFragmentLotScope({
-      applicableToAllLotLevels,
-      applicableLotLevelIds: applicableToAllLotLevels ? [] : [...applicableLotLevelIds],
+      applicableLotLevelId,
     });
 
+  const validateSlotName = () => {
+    if (isTextModulePage) {
+      setSlotNameError(null);
+      return true;
+    }
+    const key = formData.slotName.trim();
+    if (!key) {
+      setSlotNameError('请填写变量名称');
+      return false;
+    }
+    const lotId = applicableLotLevelId.trim();
+    const duplicate = texts.some((t) => {
+      if (editingText && t.id === editingText.id) return false;
+      if ((t.slotName ?? '').trim() !== key) return false;
+      if (!lotId) return true;
+      return resolveTextFragmentLotLevelId(t) === lotId;
+    });
+    if (duplicate) {
+      setSlotNameError('该品类下已存在相同变量名称，请更换');
+      return false;
+    }
+    setSlotNameError(null);
+    return true;
+  };
+
   const validateScope = () => {
-    if (!applicableToAllLotLevels && applicableLotLevelIds.length === 0) {
-      setScopeError('请勾选「通用（全部标段）」，或取消通用后至少选择一个标段');
+    if (!applicableLotLevelId.trim()) {
+      setScopeError('请选择一个适用品类（仅支持唯一品类）');
       return false;
     }
     setScopeError(null);
@@ -332,22 +392,24 @@ export default function TextPage({ moduleName = '文本', moduleKey = 'text', au
   };
 
   const formatScopeSummary = (text: TextFragment) => {
-    if ((text.applicableToAllLotLevels ?? text.applicableToAllCategories) !== false) {
-      return '通用（全部标段）';
+    if (isLegacyUniversalScope(text)) {
+      return '通用（历史数据，编辑保存后需指定单品类）';
     }
-    const ids = text.applicableLotLevelIds ?? text.applicableCategoryIds ?? [];
-    if (ids.length === 0) {
-      return '未指定标段（范本侧栏不展示）';
+    const id = resolveTextFragmentLotLevelId(text);
+    if (!id) {
+      return '未指定品类（范本侧栏不展示）';
     }
-    return ids.map((id) => lotIdToName.get(id) || id).join('、');
+    return lotIdToName.get(id) || id;
   };
 
-  /** 保存资源正文：递增 contentVersion；范本侧正文需另行「同步到所有范本」 */
+  /** 保存资源正文：递增 contentVersion */
   const handleSave = () => {
     if (!formData.name.trim() || !formData.content.trim()) return;
     if (!validateScope()) return;
+    if (!validateSlotName()) return;
     const now = new Date().toISOString().split('T')[0];
     const scope = scopePayload();
+    const slotName = isTextModulePage ? undefined : formData.slotName.trim();
 
     if (editingText) {
       const prevCv = editingText.contentVersion ?? 1;
@@ -364,6 +426,7 @@ export default function TextPage({ moduleName = '文本', moduleKey = 'text', au
             name: formData.name,
             content: formData.content,
             description: formData.description,
+            slotName,
             updatedAt: now,
             contentVersion: nextCv,
             versions: newVersions,
@@ -382,6 +445,7 @@ export default function TextPage({ moduleName = '文本', moduleKey = 'text', au
             name: formData.name,
             content: formData.content,
             description: formData.description,
+            slotName,
             updatedAt: now,
             contentVersion: nextCv,
             versions: newVersions,
@@ -404,6 +468,7 @@ export default function TextPage({ moduleName = '文本', moduleKey = 'text', au
         name: formData.name,
         content: formData.content,
         description: formData.description,
+        slotName,
         createdAt: now,
         updatedAt: now,
         versions: [],
@@ -423,19 +488,6 @@ export default function TextPage({ moduleName = '文本', moduleKey = 'text', au
     setEmbedModalOpen(false);
     setEmbedModuleFilter('all');
     setShowCreateModal(false);
-
-    // 资格条件/评标办法/合同条款：保存后自动同步到所有引用范本
-    if (autoSyncOnSave && editingText) {
-      try {
-        syncTextFragmentToAllTemplates(editingText.id);
-        const next = getMockTextFragments();
-        setAllTexts(next);
-        const u = next.find((t) => t.id === editingText.id);
-        if (u) setSelectedText(u);
-      } catch {
-        // 静默失败，不影响保存主流程
-      }
-    }
   };
 
   const closeCreateModal = () => {
@@ -468,18 +520,37 @@ export default function TextPage({ moduleName = '文本', moduleKey = 'text', au
   };
 
   return (
-    <div className="flex gap-6 h-full">
-      {/* 左侧：文本列表 */}
-      <div className="w-72 shrink-0 bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col">
-        <div className="p-4 border-b border-slate-100">
-          <div className="flex items-center justify-between mb-3">
+    <>
+    <div className={`flex h-full min-h-0 ${isTextModulePage ? 'gap-6' : 'gap-4'}`}>
+      {!isTextModulePage ? (
+        <ResourceCategoryTreeNav
+          store={classificationStore}
+          selectedLotLevelId={browseLotLevelId}
+          onSelectLotLevel={(lotLevelId, lotName) => {
+            setBrowseLotLevelId(lotLevelId);
+            setBrowseLotLevelName(lotName);
+            setSearchQuery('');
+          }}
+          resourceCountByLotId={resourceCountByLotId}
+          onCreate={openCreateModal}
+          canCreate
+        />
+      ) : null}
+
+      {isTextModulePage ? (
+        <>
+      {/* 文本管理：资源列表 */}
+      <div className="w-72 shrink-0 bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col min-h-0">
+        <div className="p-4 border-b border-slate-100 shrink-0">
+          <div className="flex items-center justify-between mb-3 gap-2">
             <h2 className="text-sm font-semibold text-slate-800">{moduleName}列表</h2>
             <button
+              type="button"
               onClick={openCreateModal}
-              className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
+              className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shrink-0"
             >
               <Plus className="w-3.5 h-3.5" />
-              新建{moduleName}
+              新建
             </button>
           </div>
           <div className="relative">
@@ -498,12 +569,15 @@ export default function TextPage({ moduleName = '文本', moduleKey = 'text', au
           {filteredTexts.length === 0 ? (
             <div className="py-12 text-center text-slate-400">
               <FileText className="w-8 h-8 mx-auto mb-2 text-slate-300" />
-              <p className="text-xs">暂无{moduleName}</p>
+              <p className="text-xs">
+                暂无{moduleName}
+              </p>
             </div>
           ) : (
             pagedTexts.map((text) => {
               const rowUsage = getFragmentTemplateUsage(text);
-              const scopeUniversal = (text.applicableToAllLotLevels ?? text.applicableToAllCategories) !== false;
+              const scopeLabel = formatScopeSummary(text);
+              const scopeLegacy = isLegacyUniversalScope(text);
               return (
               <div
                 key={text.id}
@@ -524,23 +598,18 @@ export default function TextPage({ moduleName = '文本', moduleKey = 'text', au
                 )}
                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                   <span
-                    className={`inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full shrink-0 ${
-                      scopeUniversal
+                    className={`inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full shrink-0 max-w-full ${
+                      scopeLegacy
                         ? 'bg-blue-50 text-blue-700'
                         : 'bg-violet-50 text-violet-700'
                     }`}
                   >
-                    {scopeUniversal ? (
-                      <>
-                        <Globe className="w-3 h-3" />
-                        通用
-                      </>
+                    {scopeLegacy ? (
+                      <Globe className="w-3 h-3 shrink-0" />
                     ) : (
-                      <>
-                        <Boxes className="w-3 h-3" />
-                        指定范围
-                      </>
+                      <Boxes className="w-3 h-3 shrink-0" />
                     )}
+                    <span className="truncate">{scopeLegacy ? '通用' : scopeLabel}</span>
                   </span>
                   {rowUsage.rows.length > 0 && (
                     <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full bg-sky-50 text-sky-700 shrink-0">
@@ -608,10 +677,52 @@ export default function TextPage({ moduleName = '文本', moduleKey = 'text', au
           </div>
         )}
       </div>
+        </>
+      ) : null}
 
-      {/* 右侧：文本详情 */}
-      <div className="flex-1 bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col overflow-hidden">
-        {selectedText ? (
+      {!isTextModulePage && !browseLotLevelId ? (
+        <div className="flex-1 bg-white rounded-xl border border-slate-200 shadow-sm flex items-center justify-center text-slate-400 min-w-0">
+          <div className="text-center px-6">
+            <Boxes className="w-12 h-12 mx-auto mb-3 text-slate-300" />
+            <p className="text-sm font-medium text-slate-600">请从左侧选择品类</p>
+            <p className="text-xs text-slate-500 mt-1">选择后将展示该品类下的{moduleName}</p>
+          </div>
+        </div>
+      ) : (
+      <div className="flex-1 bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col overflow-hidden min-w-0 min-h-0">
+        {!isTextModulePage && browseLotLevelId && filteredTexts.length > 1 ? (
+          <div className="shrink-0 border-b border-slate-100 px-4 py-2.5 bg-slate-50/60">
+            <p className="text-[11px] text-slate-500 mb-2">
+              {browseLotLevelName} · 共 {filteredTexts.length} 条{moduleName}
+            </p>
+            <div className="flex gap-2 overflow-x-auto pb-0.5">
+              {filteredTexts.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setSelectedText(t)}
+                  className={`shrink-0 max-w-[220px] truncate px-3 py-1.5 text-xs rounded-lg border transition-colors ${
+                    selectedText?.id === t.id
+                      ? 'bg-blue-50 border-blue-200 text-blue-700 font-medium'
+                      : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                  }`}
+                  title={t.slotName ? `${t.slotName} · ${t.name}` : t.name}
+                >
+                  {t.slotName || t.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+        {!isTextModulePage && browseLotLevelId && filteredTexts.length === 0 ? (
+          <div className="flex-1 flex items-center justify-center text-slate-400">
+            <div className="text-center px-6">
+              <FileText className="w-12 h-12 mx-auto mb-3 text-slate-300" />
+              <p className="text-sm font-medium text-slate-600">该品类下暂无{moduleName}</p>
+              <p className="text-xs text-slate-500 mt-1">点击左侧「新建{moduleName}」添加</p>
+            </div>
+          </div>
+        ) : selectedText ? (
           <>
             <div className="p-5 border-b border-slate-100">
               <div className="flex items-start justify-between gap-4">
@@ -621,20 +732,35 @@ export default function TextPage({ moduleName = '文本', moduleKey = 'text', au
                     <p className="text-sm text-slate-500 mt-0.5">{selectedText.description}</p>
                   )}
                   <div className="mt-2 flex flex-wrap items-center gap-2">
+                    {isTextModulePage ? (
                     <span className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg bg-slate-50 text-slate-700 border border-slate-100">
-                      <span className="font-medium text-slate-600">适用范围</span>
-                      {(selectedText.applicableToAllLotLevels ?? selectedText.applicableToAllCategories) !== false ? (
-                        <span className="inline-flex items-center gap-0.5 text-blue-700">
+                      <span className="font-medium text-slate-600">适用品类</span>
+                      <span className={`inline-flex items-center gap-0.5 ${isLegacyUniversalScope(selectedText) ? 'text-blue-700' : 'text-violet-700'}`}>
+                        {isLegacyUniversalScope(selectedText) ? (
                           <Globe className="w-3.5 h-3.5 shrink-0" />
-                          通用（全部标段）
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-0.5 text-violet-700">
+                        ) : (
                           <Boxes className="w-3.5 h-3.5 shrink-0" />
-                          {formatScopeSummary(selectedText)}
-                        </span>
-                      )}
+                        )}
+                        {formatScopeSummary(selectedText)}
+                      </span>
                     </span>
+                    ) : (
+                    <>
+                    <span className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg bg-slate-50 text-slate-700 border border-slate-100">
+                      <span className="font-medium text-slate-600">适用品类</span>
+                      <span className="inline-flex items-center gap-0.5 text-violet-700">
+                        <Boxes className="w-3.5 h-3.5 shrink-0" />
+                        {browseLotLevelName || formatScopeSummary(selectedText)}
+                      </span>
+                    </span>
+                    {selectedText.slotName?.trim() ? (
+                      <span className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 border border-blue-100">
+                        <span className="font-medium text-blue-600">变量名称</span>
+                        <span>{selectedText.slotName}</span>
+                      </span>
+                    ) : null}
+                    </>
+                    )}
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
@@ -668,6 +794,7 @@ export default function TextPage({ moduleName = '文本', moduleKey = 'text', au
             </div>
 
             <div className="flex-1 overflow-y-auto">
+              {isTextModulePage ? (
               <div className="border-b border-slate-100">
                 <div className="flex w-full flex-nowrap items-center gap-y-2 overflow-x-auto px-6 py-3 hover:bg-slate-50/80 transition-colors">
                   {/* 工具栏惯例：标题与统计标签紧邻；仅在「统计」与「操作按钮」之间弹性留白，操作贴右，不会在标题与数字之间拉长 */}
@@ -691,7 +818,7 @@ export default function TextPage({ moduleName = '文本', moduleKey = 'text', au
                   </div>
                   <div className="min-h-px min-w-4 flex-1 basis-0" aria-hidden />
                   <div className="flex shrink-0 items-center gap-2">
-                    {!autoSyncOnSave && selectedUsage && (
+                    {selectedUsage && (
                       <button
                         type="button"
                         disabled={
@@ -772,11 +899,12 @@ export default function TextPage({ moduleName = '文本', moduleKey = 'text', au
                       </ul>
                     )}
                     <p className="text-xs text-slate-500 leading-relaxed">
-                      在范本编辑器侧栏插入并与小节关联；保存资源不会自动改写范本内正文，请在此按需同步。
+                      在范本编辑器侧栏插入并与小节关联；保存资源后，范本导出与预览将按当前正文解析。
                     </p>
                   </div>
                 )}
               </div>
+              ) : null}
 
               <div className="p-6">
                 <div className="flex items-start justify-between gap-3 mb-4">
@@ -825,6 +953,8 @@ export default function TextPage({ moduleName = '文本', moduleKey = 'text', au
           </div>
         )}
       </div>
+      )}
+    </div>
 
       {/* 创建/编辑文本弹窗 */}
       {showCreateModal && (
@@ -834,7 +964,7 @@ export default function TextPage({ moduleName = '文本', moduleKey = 'text', au
               <h3 className="text-base font-semibold text-slate-900">
                 {editingText ? `编辑${moduleName}` : `新建${moduleName}`}
               </h3>
-              <button type="button" onClick={closeCreateModal} className="text-slate-400 hover:text-slate-600">
+              <button type="button" onClick={closeCreateModal} className="text-slate-400 hover:text-slate-600 shrink-0">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -865,10 +995,10 @@ export default function TextPage({ moduleName = '文本', moduleKey = 'text', au
                     </button>
                   </div>
                   <p className="px-6 pt-3 text-xs text-slate-500 leading-relaxed shrink-0">
-                    可选除当前资源外的<strong className="font-medium text-slate-700">资格条件 / 评标办法 / 合同条款</strong>
-                    资源（不含文本库）。通用列出全部；指定范围仅列出与当前标段范围有交集的条目。插入后在正文显示
+                    可选除当前资源外的<strong className="font-medium text-slate-700">资格条件 / 技术规范 / 评标办法 / 合同条款</strong>
+                    资源（不含文本库）。通用列出全部；指定范围仅列出与当前品类范围有交集的条目。插入后在正文显示
                     <strong className="font-medium text-slate-700">名称占位</strong>
-                    ，范本中按标段解析正文。
+                    ，范本中按品类解析正文。
                   </p>
                   <div className="px-6 pt-3 shrink-0">
                     <label className="block text-xs font-medium text-slate-600 mb-1.5">资源类型</label>
@@ -920,7 +1050,7 @@ export default function TextPage({ moduleName = '文本', moduleKey = 'text', au
                     {filteredEligibleEmbeds.length === 0 ? (
                       <p className="text-sm text-slate-500 py-6 text-center">
                         {eligibleEmbedFragments.length === 0
-                          ? '暂无可插入的其它资源（或请先保存标段范围）。'
+                          ? '暂无可插入的其它资源（或请先保存品类范围）。'
                           : '没有符合筛选条件的资源。'}
                       </p>
                     ) : (
@@ -951,7 +1081,9 @@ export default function TextPage({ moduleName = '文本', moduleKey = 'text', au
                               {(f.applicableToAllLotLevels ?? f.applicableToAllCategories) !== false ? (
                                 <span className="text-[10px] text-blue-600">通用</span>
                               ) : (
-                                <span className="text-[10px] text-violet-600">指定范围</span>
+                                <span className="text-[10px] text-violet-600">
+                                  {lotIdToName.get(resolveTextFragmentLotLevelId(f)) || '指定品类'}
+                                </span>
                               )}
                             </div>
                             {f.description ? (
@@ -988,6 +1120,62 @@ export default function TextPage({ moduleName = '文本', moduleKey = 'text', au
               )}
 
               <div className="flex-1 overflow-y-auto p-6 space-y-4 min-h-0">
+              {!isTextModulePage ? (
+                <div className="rounded-lg border border-slate-200 overflow-hidden">
+                  <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-100">
+                    <p className="text-xs font-semibold text-slate-700">基本信息</p>
+                  </div>
+                  <div className="p-4 space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-[11rem_minmax(0,1fr)] gap-x-4 gap-y-4">
+                      <div className="flex flex-col gap-1.5 min-w-0">
+                        <label className="text-[13px] font-medium text-slate-900 leading-snug">
+                          变量名称 <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={formData.slotName}
+                          onChange={(e) => {
+                            setFormData({ ...formData, slotName: e.target.value });
+                            setSlotNameError(null);
+                          }}
+                          className="w-full h-9 px-3 border border-slate-200 rounded-lg text-sm text-slate-900 bg-white outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15"
+                          placeholder="资格条件模板1"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1.5 min-w-0">
+                        <label className="text-[13px] font-medium text-slate-900 leading-snug">
+                          {moduleName}名称 <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={formData.name}
+                          onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                          className="w-full h-9 px-3 border border-slate-200 rounded-lg text-sm text-slate-900 bg-white outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15"
+                          placeholder={`请输入${moduleName}名称`}
+                        />
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-slate-500 leading-relaxed -mt-1">
+                      变量名称与通用模版中的资源占位标识一致；同品类下不可重复，范本拼接时按「品类 + 变量名称」匹配正文。
+                    </p>
+                    {slotNameError ? (
+                      <p className="text-xs text-rose-600 -mt-2">{slotNameError}</p>
+                    ) : null}
+                    <div className="flex flex-col gap-1.5 min-w-0 pt-1 border-t border-slate-100">
+                      <label className="text-[13px] font-medium text-slate-900 leading-snug">
+                        {moduleName}描述
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.description}
+                        onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                        className="w-full h-9 px-3 border border-slate-200 rounded-lg text-sm text-slate-900 bg-white outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15"
+                        placeholder={`简要描述${moduleName}用途（选填）`}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ) : (
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">
@@ -1012,6 +1200,7 @@ export default function TextPage({ moduleName = '文本', moduleKey = 'text', au
                   />
                 </div>
               </div>
+              )}
 
               <div>
                 <div className="flex items-center justify-between gap-3 mb-1.5">
@@ -1031,8 +1220,8 @@ export default function TextPage({ moduleName = '文本', moduleKey = 'text', au
                       disabled={!scopeInsertReady}
                       title={
                         scopeInsertReady
-                          ? '插入其它资源的名称占位（不含文本库），范本中按标段展开正文'
-                          : '请先选择适用标段范围：勾选「通用」或指定叶子标段后，方可插入其它资源占位'
+                          ? '插入其它资源的名称占位（不含文本库），范本中按品类展开正文'
+                          : '请先选择一个适用品类后，方可插入其它资源占位'
                       }
                       className="inline-flex shrink-0 items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg border border-violet-200 bg-violet-50 text-violet-800 hover:bg-violet-100 disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
                     >
@@ -1050,7 +1239,7 @@ export default function TextPage({ moduleName = '文本', moduleKey = 'text', au
                 {isTextModulePage && (
                   <p className="text-[11px] text-slate-500 mt-1.5 leading-relaxed">
                     「资源插入」仅可嵌入<strong className="font-medium text-slate-600">资格 / 评标 / 合同</strong>
-                    资源，在正文插入蓝色名称占位；范本展示时按标段解析正文。
+                    资源，在正文插入蓝色名称占位；范本展示时按品类解析正文。
                   </p>
                 )}
               </div>
@@ -1058,17 +1247,9 @@ export default function TextPage({ moduleName = '文本', moduleKey = 'text', au
               <LotScopePicker
                 key={categoryPickerEpoch}
                 store={classificationStore}
-                universal={applicableToAllLotLevels}
-                selectedLotLevelIds={applicableLotLevelIds}
-                onUniversalChange={(v) => {
-                  setApplicableToAllLotLevels(v);
-                  if (v) setScopeError(null);
-                }}
-                onToggleLot={(lotLevelId, checked) => {
-                  setApplicableLotLevelIds((prev) => {
-                    if (checked) return prev.includes(lotLevelId) ? prev : [...prev, lotLevelId];
-                    return prev.filter((x) => x !== lotLevelId);
-                  });
+                selectedLotLevelId={applicableLotLevelId}
+                onSelectLotLevel={(lotLevelId) => {
+                  setApplicableLotLevelId(lotLevelId);
                   setScopeError(null);
                 }}
               />
@@ -1088,7 +1269,11 @@ export default function TextPage({ moduleName = '文本', moduleKey = 'text', au
               <button
                 type="button"
                 onClick={handleSave}
-                disabled={!formData.name.trim() || !formData.content.trim()}
+                disabled={
+                  !formData.name.trim()
+                  || !formData.content.trim()
+                  || (!isTextModulePage && !formData.slotName.trim())
+                }
                 className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 保存
@@ -1117,6 +1302,6 @@ export default function TextPage({ moduleName = '文本', moduleKey = 'text', au
         entries={textLogEntries}
       />
 
-    </div>
+    </>
   );
 }

@@ -1,5 +1,5 @@
 /**
- * 种子标段 id（无 storage 依赖，供 mockData 等模块安全引用）
+ * 种子品类 id（无 storage 依赖，供 mockData 等模块安全引用）
  * 与 seed.ts 同步；重新生成：node scripts/generate-classification-seed.mjs
  */
 export const seedLotIds = {

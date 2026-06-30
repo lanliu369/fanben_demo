@@ -203,7 +203,7 @@ function CategoryPageContent() {
   const deleteTargetMessage = useMemo(() => {
     if (!deleteTarget) return '';
     if (deleteTarget.kind === 'lot') {
-      return `确定删除标段「${deleteTarget.lot.name}」？删除后不可恢复。`;
+      return `确定删除品类「${deleteTarget.lot.name}」？删除后不可恢复。`;
     }
     return `确定删除目录「${deleteTarget.node.name}」？删除后不可恢复。`;
   }, [deleteTarget]);
@@ -230,7 +230,7 @@ function CategoryPageContent() {
       <div className={categoryUi.toolbarRow}>
         <div className="min-w-0">
           <p className={categoryUi.pageDesc}>
-            共 6 级：业务板块 → 能源类型 → 业务阶段 → 业务性质 → 系统/专业/阶段 → 标段级别
+            共 6 级：业务板块 → 能源类型 → 业务阶段 → 业务性质 → 系统/专业/阶段 → 品类级别
           </p>
         </div>
         <div className={categoryUi.toolbarActions}>

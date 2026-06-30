@@ -166,7 +166,7 @@ function parseRows() {
       businessStage: col('业务阶段')(r),
       businessNature: col('业务性质')(r),
       domainLevelName: col('系统专业阶段级别')(r),
-      lotName: col('标段级别')(r),
+      lotName: col('品类级别')(r),
       procurementLabels: col('采购方式')(r),
       evaluationLabels: col('评审办法')(r),
     };
@@ -307,7 +307,7 @@ function emitTs(store) {
   const cbsj = pick('初步设计');
   const lotIdLines = [];
   lotIdLines.push('/**');
-  lotIdLines.push(' * 种子标段 id（无 storage 依赖，供 mockData 等模块安全引用）');
+  lotIdLines.push(' * 种子品类 id（无 storage 依赖，供 mockData 等模块安全引用）');
   lotIdLines.push(' * 与 seed.ts 同步；重新生成：node scripts/generate-classification-seed.mjs');
   lotIdLines.push(' */');
   lotIdLines.push('export const seedLotIds = {');

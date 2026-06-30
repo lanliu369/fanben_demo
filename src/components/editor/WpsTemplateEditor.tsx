@@ -1,18 +1,14 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Bot, Edit2, FileCheck, FilePlus2, FileText, Loader2, Plus, Save, Scale, Search, Shield, Trash2 } from 'lucide-react';
+import { ArrowLeft, Bot, Edit2, FilePlus2, Loader2, Plus, Save, Trash2 } from 'lucide-react';
 import { asBlob } from 'html-docx-js-typescript';
-import type { Template, TemplateSection, TemplateVariable, TextBinding, TextFragment } from '@/types';
-import { getGlobalTemplateVariables, getMockTextFragments, upsertTemplateFragmentBinding } from '@/lib/mockData';
-import { resolveTemplateLotLevelId } from '@/lib/classification';
-import { textFragmentAppliesToTemplate } from '@/lib/textFragmentLotScope';
-import { sortByCreatedAtDesc } from '@/lib/sortByCreatedAtDesc';
-import { buildSectionsHtmlWithResources, detachManuallyEditedResourceSections, syncUnchangedLinkedResourcesOnSave } from '@/lib/resolveTemplateSectionHtml';
-import { recordTemplateResourceInsert } from '@/lib/templateResourceInserts';
-import { promoteEmbeddedFragmentReferences, getSectionTitlesForFragmentInTemplate } from '@/lib/textFragmentReference';
-import { expandNestedResourceEmbeds } from '@/lib/resourceEmbedHtml';
-import { buildResourceInsertHtml } from '@/lib/quotedBlockHtml';
+import type { Template, TemplateSection, TemplateVariable } from '@/types';
+import { getGlobalTemplateVariables, getMockTextFragments } from '@/lib/mockData';
+import { buildSectionsHtmlWithResources } from '@/lib/resolveTemplateSectionHtml';
+import { stripGeneralTemplateLinksFromSections } from '@/lib/generalTemplateSync';
+import { getGeneralTemplateParsedContent } from '@/lib/general-templates';
+import { promoteEmbeddedFragmentReferences } from '@/lib/textFragmentReference';
 import { saveTemplateDocxCache, loadTemplateDocxCache } from '@/lib/templateDocxCache';
 import { IMPORT_DOCX_MIN_BYTES } from '@/lib/documentStorageConstants';
 import { normalizePasteHtmlForWps } from '@/lib/wpsPasteHtmlNormalize';
@@ -24,11 +20,6 @@ import { SystemDialog } from '@/components/ui/SystemDialog';
 import { ModalOverlay } from '@/components/ui/ModalOverlay';
 import { TemplateEditorTitleBlock } from '@/components/editor/TemplateEditorTitleBlock';
 import { useGlobalLoading } from '@/components/ui/GlobalLoading';
-
-function stripHtmlPreview(html: string) {
-  if (!html) return '';
-  return html.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
-}
 
 function toInsertPlainText(raw: string) {
   if (!raw) return '';
@@ -62,7 +53,6 @@ function buildVariableInsertHtml(v: TemplateVariable): string {
   );
 }
 
-/** 侧栏插入资源：见 buildResourceInsertHtml（高亮引用块 + textFragmentId） */
 function toJsStringLiteral(raw: string) {
   return raw
     .replace(/\\/g, '\\\\')
@@ -143,151 +133,6 @@ async function pasteViaWpsWebOfficeApplication(
   return false;
 }
 
-function bindingAppliesToTemplate(b: TextBinding, tpl: Template): boolean {
-  if (b.templateId && b.templateId === tpl.id) {
-    return true;
-  }
-  if (b.frameworkId && b.chapterId && tpl.frameworkId === b.frameworkId) {
-    const walk = (secs: TemplateSection[]): boolean => {
-      for (const s of secs) {
-        if (s.chapterId === b.chapterId) {
-          return true;
-        }
-        if (s.children?.length && walk(s.children)) {
-          return true;
-        }
-      }
-      return false;
-    };
-    return walk(tpl.sections);
-  }
-  return false;
-}
-
-function getSectionTitlesForFragmentInTemplateWithSession(
-  sections: TemplateSection[],
-  textFragmentId: string,
-  sessionInsertedIds: readonly string[],
-): string[] {
-  const fromTree = getSectionTitlesForFragmentInTemplate(sections, textFragmentId);
-  if (fromTree.length > 0) return fromTree;
-  if (sessionInsertedIds.includes(textFragmentId)) {
-    return ['已插入正文（保存后写入绑定）'];
-  }
-  return [];
-}
-
-type ResourceModule = NonNullable<TextFragment['module']>;
-
-function resolveFragmentModule(frag: TextFragment): ResourceModule {
-  return frag.module ?? 'text';
-}
-
-type ResourceTextCard = {
-  id: string;
-  title: string;
-  summary: string;
-  sectionsLabel: string;
-  copyPayload: string;
-  source: 'linked' | 'pool';
-  /** 与资源管理四模块一致：text | qualification | evaluation | contract-clause；侧栏 Tab 仅展示同 module */
-  module: ResourceModule;
-};
-
-/**
- * 范本侧栏资源列表的两段逻辑（与资源管理「文本 / 资格条件 / 评标办法 / 合同条款」对应）：
- *
- * 1）适用范围 + 范本关联（不分 Tab）
- *    - 先用 textFragmentAppliesToTemplateLot：通用（全部标段）或当前范本标段命中。
- *    - 再分「已与本范本关联」vs「尚未绑定但标段可用」：
- *      · 已关联：绑定记录指向本范本，或章节树中显式引用 textFragmentId。
- *      · 资源池：标段适用但未绑定，供插入后再做绑定。
- *
- * 2）当前 Tab 决定展示哪一类资源（四 Tab ↔ 四模块）
- *    - 文本管理 → module `text`
- *    - 资格条件 → `qualification`
- *    - 评标办法 → `evaluation`
- *    - 合同条款 → `contract-clause`
- *    在 1）得到的集合上按 `module` 过滤；同一 Tab 内合并「已关联」与「资源池」（与资源管理列表一致）。
- */
-
-/** 已与本范本关联、且标段适用的文本资源（绑定 + 章节引用 + 本次会话插入） */
-function collectTemplateLinkedTextCards(
-  template: Template,
-  fragments: TextFragment[],
-  sessionInsertedIds: readonly string[] = [],
-) {
-  return fragments
-    .filter((frag) => textFragmentAppliesToTemplate(frag, template))
-    .map((frag) => {
-      const fromBindings = (frag.bindings ?? []).filter((b) => bindingAppliesToTemplate(b, template));
-      const fromSections = getSectionTitlesForFragmentInTemplateWithSession(
-        template.sections,
-        frag.id,
-        sessionInsertedIds,
-      );
-      if (fromBindings.length === 0 && fromSections.length === 0) {
-        return null;
-      }
-      const sectionLabels = [
-        ...fromBindings.map((b) => b.sectionTitle || b.chapterTitle || '').filter(Boolean),
-        ...fromSections,
-      ];
-      const uniqueLabels = [...new Set(sectionLabels)];
-      const rawHtml = frag.content ?? '';
-      const summary = frag.description?.trim() || stripHtmlPreview(rawHtml).slice(0, 220);
-      return {
-        id: frag.id,
-        title: frag.name,
-        summary: summary || '（无摘要）',
-        sectionsLabel: uniqueLabels.length ? uniqueLabels.join('、') : '（未定位章节标题）',
-        copyPayload: rawHtml || frag.name,
-        source: 'linked' as const,
-        module: resolveFragmentModule(frag),
-      };
-    })
-    .filter((x): x is NonNullable<typeof x> => x != null);
-}
-
-/** 标段适用但未绑定本范本的资源池（避免侧栏空白；插入后可再在资源管理绑定） */
-function collectTemplateFallbackTextCards(
-  template: Template,
-  fragments: TextFragment[],
-  sessionInsertedIds: readonly string[] = [],
-): ResourceTextCard[] {
-  return fragments
-    .filter((frag) => textFragmentAppliesToTemplate(frag, template))
-    .map((frag) => {
-      const linkedByBinding = (frag.bindings ?? []).some((b) => bindingAppliesToTemplate(b, template));
-      const linkedBySection =
-        getSectionTitlesForFragmentInTemplateWithSession(template.sections, frag.id, sessionInsertedIds).length > 0;
-      if (linkedByBinding || linkedBySection) {
-        return null;
-      }
-      const rawHtml = frag.content ?? '';
-      const summary = frag.description?.trim() || stripHtmlPreview(rawHtml).slice(0, 220);
-      return {
-        id: frag.id,
-        title: frag.name,
-        summary: summary || '（无摘要）',
-        sectionsLabel: '未绑定当前范本',
-        copyPayload: rawHtml || frag.name,
-        source: 'pool' as const,
-        module: resolveFragmentModule(frag),
-      };
-    })
-    .filter((x): x is NonNullable<typeof x> => x != null);
-}
-
-/** 侧栏 Tab → TextFragment.module（「合同条款」Tab 对应 `contract-clause`） */
-function systemTabToResourceModule(
-  tab: 'text' | 'qualification' | 'evaluation' | 'contract' | 'variables' | 'ai',
-): ResourceModule | null {
-  if (tab === 'variables' || tab === 'ai') return null;
-  if (tab === 'contract') return 'contract-clause';
-  return tab;
-}
-
 type LegacyDocEditor = {
   destroyEditor?: () => void;
   downloadAs?: (format: string) => void;
@@ -356,7 +201,10 @@ async function uploadDocxBase64(templateId: string, base64: string): Promise<voi
 
 async function uploadDocxFromTemplateSections(tpl: Template): Promise<void> {
   const fragments = getMockTextFragments();
-  const html = buildSectionsHtmlWithResources(tpl.sections, tpl, fragments);
+  const gtParsed = tpl.generalTemplateId
+    ? getGeneralTemplateParsedContent(tpl.generalTemplateId)
+    : null;
+  const html = buildSectionsHtmlWithResources(tpl.sections, tpl, fragments, 0, gtParsed);
   const docBlob = await asBlob(
     `<html><body>${html || `<h1>${escapeHtml(tpl.name)}</h1>`}</body></html>`,
   ) as Blob;
@@ -370,12 +218,10 @@ export function WpsTemplateEditor({ template, onBack, onSave, initialFile }: Wps
   const [booting, setBooting] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [activeSystemTab, setActiveSystemTab] = useState<'text' | 'qualification' | 'evaluation' | 'contract' | 'variables' | 'ai'>('text');
+  const [activeSystemTab, setActiveSystemTab] = useState<'variables' | 'ai'>('variables');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [ooConnectionHint, setOoConnectionHint] = useState<string | null>(null);
   const [insertHint, setInsertHint] = useState<string | null>(null);
-  /** 资源插入失败时弹出重试，不在侧栏堆长文案 */
-  const [resourceInsertRetryItem, setResourceInsertRetryItem] = useState<ResourceTextCard | null>(null);
   /** 变量插入失败时同上：仅重试/取消，不提供手动粘贴 */
   const [variableInsertRetryItem, setVariableInsertRetryItem] = useState<TemplateVariable | null>(null);
   const [editorVariables, setEditorVariables] = useState(() =>
@@ -387,9 +233,6 @@ export function WpsTemplateEditor({ template, onBack, onSave, initialFile }: Wps
   const [newVariableIdentifier, setNewVariableIdentifier] = useState('');
   const [newVariableName, setNewVariableName] = useState('');
   const [newVariableSampleValue, setNewVariableSampleValue] = useState('');
-  const [resourceFilterQuery, setResourceFilterQuery] = useState('');
-  /** 本次编辑会话内已从侧栏插入正文的资源 id（保存前侧栏展示「已插入」） */
-  const [sessionInsertedFragmentIds, setSessionInsertedFragmentIds] = useState<string[]>([]);
   const [editorVersion, setEditorVersion] = useState(() => (template.version ?? 'V1.0').trim() || 'V1.0');
   const [deleteVariableId, setDeleteVariableId] = useState<string | null>(null);
   const [systemNotice, setSystemNotice] = useState<string | null>(null);
@@ -458,7 +301,10 @@ export function WpsTemplateEditor({ template, onBack, onSave, initialFile }: Wps
     }
 
     const fragments = getMockTextFragments();
-    const fallbackHtml = buildSectionsHtmlWithResources(tpl.sections, tpl, fragments);
+    const gtParsed = tpl.generalTemplateId
+      ? getGeneralTemplateParsedContent(tpl.generalTemplateId)
+      : null;
+    const fallbackHtml = buildSectionsHtmlWithResources(tpl.sections, tpl, fragments, 0, gtParsed);
     if (fallbackHtml.trim()) {
       setOoConnectionHint(
         '未找到本地 docx 或导出失败，已用范本章节数据保存；若 WPS 内刚编辑过，请先确认编辑器已加载并成功保存后再试。',
@@ -472,32 +318,34 @@ export function WpsTemplateEditor({ template, onBack, onSave, initialFile }: Wps
     );
   }, [ensureLocalDocxFromTemplate, flushWpsDocumentBeforeExport]);
 
-  const handleSave = useCallback(async () => {
+  const handleSaveAsCustom = useCallback(async () => {
     const tpl = templateRef.current;
     const now = new Date().toISOString().split('T')[0];
     try {
-      globalLoading.show('正在保存中…');
+      globalLoading.show('正在保存为自定义模版…');
       setSaving(true);
       setError(null);
       const html = await requestHtmlFromEditor();
       const parsed = parseSectionsFromHTML(html, tpl.id);
-      const fragments = getMockTextFragments();
       let merged =
         parsed.length > 0 ? mergeParsedSectionsWithPrevious(tpl.sections, parsed) : tpl.sections;
-      merged = detachManuallyEditedResourceSections(merged, tpl, fragments, tpl.sections);
-      merged = syncUnchangedLinkedResourcesOnSave(merged, tpl, fragments);
       merged = promoteEmbeddedFragmentReferences(merged);
+      merged = stripGeneralTemplateLinksFromSections(merged);
       const resolvedVersion = editorVersion.trim() || (tpl.version ?? 'V1.0').trim() || 'V1.0';
-      onSave({
+      const savedTpl: Template = {
         ...tpl,
         version: resolvedVersion,
         sections: merged,
         variables: editorVariables,
+        generalTemplateId: undefined,
+        generalTemplateSyncedVersion: undefined,
         updatedAt: now,
-      });
+      };
+      onSave(savedTpl);
       try {
-        const bodyHtml = buildSectionsHtmlWithResources(merged, { ...tpl, sections: merged }, fragments);
-        const docBlob = await asBlob(`<html><body>${bodyHtml || `<h1>${escapeHtml(tpl.name)}</h1>`}</body></html>`) as Blob;
+        const docBlob = await asBlob(
+          `<html><body>${html.trim() || `<h1>${escapeHtml(tpl.name)}</h1>`}</body></html>`,
+        ) as Blob;
         const content = await blobToBase64(docBlob);
         await fetch(`/api/documents/${encodeURIComponent(tpl.id)}`, {
           method: 'POST',
@@ -508,11 +356,9 @@ export function WpsTemplateEditor({ template, onBack, onSave, initialFile }: Wps
         console.warn('[WpsTemplateEditor] 保存后同步 docx 失败', syncErr);
       }
     } catch (e) {
-      const message = e instanceof Error ? e.message : '同步章节失败';
+      const message = e instanceof Error ? e.message : '保存失败';
       console.error(message);
       setError(message);
-      const resolvedVersion = editorVersion.trim() || (tpl.version ?? 'V1.0').trim() || 'V1.0';
-      onSave({ ...tpl, version: resolvedVersion, variables: editorVariables, updatedAt: now });
     } finally {
       setSaving(false);
       globalLoading.hide();
@@ -528,10 +374,6 @@ export function WpsTemplateEditor({ template, onBack, onSave, initialFile }: Wps
     setEditorVersion((template.version ?? 'V1.0').trim() || 'V1.0');
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅切换范本 id 时重置本地版本号，避免编辑中途随 props 抖动
   }, [template.id]);
-
-  useEffect(() => {
-    setResourceFilterQuery('');
-  }, [activeSystemTab]);
 
   useEffect(() => {
     const refresh = () => setResourceDataTick((t) => t + 1);
@@ -890,92 +732,6 @@ export function WpsTemplateEditor({ template, onBack, onSave, initialFile }: Wps
     setDeleteVariableId(null);
   }, [deleteVariableId, editorVariables, editingVariableId, resetVariableModal]);
 
-  /** 全量资源片段（mock）；下游会先按标段/通用筛，再拆关联与池 */
-  const allFragments = useMemo(
-    () => sortByCreatedAtDesc(getMockTextFragments()),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 刻意在 sections/绑定变更或聚焦时全量重算
-    [template.id, template.updatedAt, resourceDataTick, template.sections],
-  );
-
-  /** 标段适用且已关联当前范本（绑定或章节引用），尚未按 Tab 分模块 */
-  const linkedTextCards = useMemo(
-    () => collectTemplateLinkedTextCards(template, allFragments, sessionInsertedFragmentIds),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 刻意在 sections/绑定变更或聚焦时全量重算
-    [template.id, template.updatedAt, resourceDataTick, template.sections, allFragments, sessionInsertedFragmentIds],
-  );
-
-  /** 标段适用但未绑定本范本；尚未按 Tab 分模块 */
-  const fallbackTextCards = useMemo(
-    () => collectTemplateFallbackTextCards(template, allFragments, sessionInsertedFragmentIds),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 刻意在 sections/绑定变更或聚焦时全量重算
-    [template.id, template.updatedAt, resourceDataTick, template.sections, allFragments, sessionInsertedFragmentIds],
-  );
-
-  /** 当前 Tab 对应 module 下、已关联本范本的条目 */
-  const tabResourceItems = useMemo(() => {
-    const m = systemTabToResourceModule(activeSystemTab);
-    if (!m) return [];
-    return linkedTextCards.filter((it) => it.module === m);
-  }, [linkedTextCards, activeSystemTab]);
-
-  /** 当前 Tab 对应 module 下、资源池中未绑定的条目 */
-  const fallbackTabResourceItems = useMemo(() => {
-    const m = systemTabToResourceModule(activeSystemTab);
-    if (!m) return [];
-    return fallbackTextCards.filter((it) => it.module === m);
-  }, [fallbackTextCards, activeSystemTab]);
-
-  /** 同一 Tab：已关联 + 未绑定资源池合并展示（与资源管理各模块列表一致，不因存在绑定而隐藏其余条目） */
-  const displayedResourceItems = useMemo(() => {
-    const linkedIds = new Set(tabResourceItems.map((item) => item.id));
-    const pool = fallbackTabResourceItems.filter((item) => !linkedIds.has(item.id));
-    return [...tabResourceItems, ...pool];
-  }, [tabResourceItems, fallbackTabResourceItems]);
-  const filteredResourceItems = useMemo(() => {
-    const q = resourceFilterQuery.trim().toLowerCase();
-    if (!q) {
-      return displayedResourceItems;
-    }
-    return displayedResourceItems.filter((item) =>
-      item.title.toLowerCase().includes(q)
-      || item.summary.toLowerCase().includes(q)
-      || item.sectionsLabel.toLowerCase().includes(q),
-    );
-  }, [displayedResourceItems, resourceFilterQuery]);
-  const activeResourceTabLabel = useMemo(() => {
-    if (activeSystemTab === 'qualification') return '资格条件';
-    if (activeSystemTab === 'evaluation') return '评标办法';
-    if (activeSystemTab === 'contract') return '合同条款';
-    return '文本';
-  }, [activeSystemTab]);
-
-  const insertResourceCardAtCursor = useCallback(async (item: ResourceTextCard) => {
-    /** 嵌入了其它资源的正文：先按范本标段展开占位，再规范化边框（避免 WPS 里仍为虚线参考线） */
-    const resolved = expandNestedResourceEmbeds(item.copyPayload, resolveTemplateLotLevelId(template), allFragments);
-    const forWps = normalizePasteHtmlForWps(resolved);
-    const { plainBlock, htmlBlock } = buildResourceInsertHtml(forWps, item.id);
-    const inserted = await insertTextAtCursor(plainBlock, item.title, htmlBlock, { suppressSidebarHints: true });
-    return { inserted: Boolean(inserted), plainBlock, htmlBlock };
-  }, [insertTextAtCursor, template.lotLevelId, allFragments]);
-
-  const handleInsertResource = useCallback(async (item: ResourceTextCard) => {
-    const result = await insertResourceCardAtCursor(item);
-    if (!result.inserted) {
-      setResourceInsertRetryItem(item);
-      return;
-    }
-    const tpl = templateRef.current;
-    upsertTemplateFragmentBinding(tpl, item.id, {
-      sectionTitle: item.sectionsLabel !== '未绑定当前范本' ? item.sectionsLabel : '编辑器内插入',
-    });
-    recordTemplateResourceInsert(tpl.id, item.id);
-    setSessionInsertedFragmentIds((prev) =>
-      prev.includes(item.id) ? prev : [...prev, item.id],
-    );
-    setResourceDataTick((t) => t + 1);
-    setInsertHint('已插入到当前光标位置，并已关联到本范本');
-  }, [insertResourceCardAtCursor]);
-
   const aiDemoSuggestions = useMemo(() => {
     return [
       {
@@ -995,10 +751,6 @@ export function WpsTemplateEditor({ template, onBack, onSave, initialFile }: Wps
 
   const systemTabs = useMemo(() => {
     return [
-      { key: 'text' as const, label: '文本管理', icon: FileText },
-      { key: 'qualification' as const, label: '资格条件', icon: Shield },
-      { key: 'evaluation' as const, label: '评标办法', icon: Scale },
-      { key: 'contract' as const, label: '合同条款', icon: FileCheck },
       { key: 'variables' as const, label: '变量库', icon: FilePlus2 },
       { key: 'ai' as const, label: 'AI扩写', icon: Bot },
     ];
@@ -1243,12 +995,12 @@ export function WpsTemplateEditor({ template, onBack, onSave, initialFile }: Wps
         </div>
         <button
           type="button"
-          onClick={handleSave}
+          onClick={handleSaveAsCustom}
           disabled={saving}
           className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white text-sm rounded-lg transition-colors"
         >
           {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-          保存并返回
+          保存为自定义模版
         </button>
       </div>
 
@@ -1290,7 +1042,7 @@ export function WpsTemplateEditor({ template, onBack, onSave, initialFile }: Wps
 
           {!loading && !error && (
             <div className="absolute bottom-3 right-3 max-w-sm px-2 py-1.5 rounded bg-slate-900/75 text-white text-[11px] leading-snug">
-              保存说明：解析章节结构并保存；手动修改过的引用资源块将脱离同步并去掉高亮，未改动的引用块仍随资源库更新。
+              引用型范本打开时由通用模版与变量、资源占位符自动拼接；仅当需要固化当前编辑内容并脱离模版同步时，请点击「保存为自定义模版」。
             </div>
           )}
         </div>
@@ -1298,13 +1050,6 @@ export function WpsTemplateEditor({ template, onBack, onSave, initialFile }: Wps
         <aside className="w-[360px] bg-white border-l border-slate-200 flex flex-col">
           <div className="px-4 py-3 border-b border-slate-200">
             <h3 className="text-sm font-semibold text-slate-900">系统功能区</h3>
-            <p className="text-xs text-slate-500 mt-0.5">与「资源管理」同一套文本数据</p>
-            {linkedTextCards.length > 0 && (
-              <div className="mt-2 rounded-lg border border-blue-100 bg-blue-50/90 px-3 py-2 text-[11px] text-blue-900 leading-relaxed">
-                <span className="font-medium text-blue-950">引用资源：</span>
-                插入后显示橙色高亮；若在正文中手动修改并保存，将脱离资源同步；未改动的块仍随资源管理更新。
-              </div>
-            )}
           </div>
 
           <div className="flex-1 min-h-0 flex">
@@ -1328,70 +1073,6 @@ export function WpsTemplateEditor({ template, onBack, onSave, initialFile }: Wps
             </div>
 
             <div className="flex-1 overflow-y-auto p-3 space-y-3">
-            {(activeSystemTab === 'text'
-              || activeSystemTab === 'qualification'
-              || activeSystemTab === 'evaluation'
-              || activeSystemTab === 'contract') && (
-              <>
-                <div className="border border-slate-200 rounded-lg px-2.5 py-2">
-                  <div className="relative">
-                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="text"
-                      value={resourceFilterQuery}
-                      onChange={(e) => setResourceFilterQuery(e.target.value)}
-                      placeholder="按名称查询…"
-                      className="w-full pl-7 pr-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                    />
-                  </div>
-                </div>
-                {filteredResourceItems.length === 0 ? (
-                  <div className="text-xs text-slate-500 space-y-2 leading-relaxed">
-                    {resourceFilterQuery.trim() ? (
-                      <p>没有符合筛选条件的条目，请调整关键词。</p>
-                    ) : linkedTextCards.length === 0 && fallbackTextCards.length === 0 ? (
-                      <p>
-                        资源管理里暂无可展示数据。请先在左侧 <span className="font-medium text-slate-700">资源管理 → 文本管理</span>{' '}
-                        新建并保存文本。
-                      </p>
-                    ) : (
-                      <p>
-                        本分类下暂无匹配项（按标题/摘要关键词粗筛）。请切换到侧栏「文本管理」查看资源，或在资源管理中调整名称/描述。
-                      </p>
-                    )}
-                  </div>
-                ) : (
-                  filteredResourceItems.map((item) => (
-                    <div key={item.id} className="border border-slate-200 rounded-lg p-2.5">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <span className="text-sm font-medium text-slate-800">{item.title}</span>
-                        </div>
-                        <div className="shrink-0 flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => void handleInsertResource(item)}
-                            aria-label="插入到当前光标位置"
-                            className="p-1 rounded hover:bg-slate-100 text-slate-500"
-                            title="以高亮块插入到当前光标位置"
-                          >
-                            <Plus className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                      <div className="mt-1 text-[11px] text-slate-500">
-                        {item.source === 'linked' ? `绑定至：${item.sectionsLabel}` : item.sectionsLabel}
-                      </div>
-                      <div className="mt-1 text-xs text-slate-600 line-clamp-4">{item.summary}</div>
-                    </div>
-                  ))
-                )}
-                {insertHint && (
-                  <div className="text-[11px] text-slate-500 leading-relaxed">{insertHint}</div>
-                )}
-              </>
-            )}
-
             {activeSystemTab === 'variables' && (
               <div className="space-y-3">
                 <div className="border border-slate-200 rounded-lg overflow-hidden bg-white">
@@ -1588,10 +1269,6 @@ export function WpsTemplateEditor({ template, onBack, onSave, initialFile }: Wps
               </div>
             )}
 
-            {!['text', 'qualification', 'evaluation', 'contract', 'variables', 'ai'].includes(activeSystemTab) && (
-              <div className="text-xs text-slate-400">暂无内容</div>
-            )}
-
             </div>
           </div>
         </aside>
@@ -1605,22 +1282,6 @@ export function WpsTemplateEditor({ template, onBack, onSave, initialFile }: Wps
         variant="confirm"
         onClose={() => setDeleteVariableId(null)}
         onConfirm={confirmDeleteVariable}
-      />
-
-      <SystemDialog
-        open={resourceInsertRetryItem !== null}
-        title="资源插入失败"
-        message="未能将资源写入编辑器当前光标位置，是否重新尝试插入？"
-        tone="warning"
-        variant="confirm"
-        confirmText="重试"
-        cancelText="取消"
-        onClose={() => setResourceInsertRetryItem(null)}
-        onConfirm={() => {
-          const item = resourceInsertRetryItem;
-          setResourceInsertRetryItem(null);
-          if (item) void handleInsertResource(item);
-        }}
       />
 
       <SystemDialog

@@ -9,22 +9,20 @@ function fragmentLotIdsMatchTemplateLot(frag: TextFragment, templateLotLevelId: 
   const ids = (frag.applicableLotLevelIds ?? frag.applicableCategoryIds ?? []).map((id) =>
     migrateLegacyCategoryId(id),
   );
-  if (ids.length === 0) return false;
-  if (ids.includes(resolvedTpl)) return true;
+  const primaryId = ids[0];
+  if (!primaryId) return false;
+  if (primaryId === resolvedTpl) return true;
 
   const store = getClassificationStore();
   const tplPath = resolveLotLevelPath(resolvedTpl, store);
   if (!tplPath) return false;
-  return ids.some((id) => {
-    const fragPath = resolveLotLevelPath(id, store);
-    return Boolean(fragPath && fragPath.lotLevelName === tplPath.lotLevelName);
-  });
+  const fragPath = resolveLotLevelPath(primaryId, store);
+  return Boolean(fragPath && fragPath.lotLevelName === tplPath.lotLevelName);
 }
 
 /**
- * 资源「适用标段范围」：在关联了某标段叶子节点的范本内，是否允许在侧栏展示该资源。
- * - 通用（applicableToAllLotLevels !== false）：任意范本标段均匹配。
- * - 指定范围：仅当资源所选标段与范本标段 ID（或标段名称）一致时匹配。
+ * 资源「适用品类」：每个资源仅对一个品类级别生效；在对应品类关联的范本侧栏中展示。
+ * - 历史「通用」数据（applicableToAllLotLevels !== false）仍对全部品类匹配，保存后收敛为单品类。
  */
 export function textFragmentAppliesToTemplateLot(
   frag: TextFragment,
@@ -36,7 +34,7 @@ export function textFragmentAppliesToTemplateLot(
   return fragmentLotIdsMatchTemplateLot(frag, templateLotLevelId);
 }
 
-/** 按范本招采分类（标段）判断资源是否可在侧栏展示 */
+/** 按范本招采分类（品类）判断资源是否可在侧栏展示 */
 export function textFragmentAppliesToTemplate(
   frag: TextFragment,
   template: Pick<

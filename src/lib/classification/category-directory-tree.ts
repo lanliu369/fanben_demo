@@ -50,7 +50,7 @@ export const DIRECTORY_LEVEL_LABELS: Record<DirectoryLevel, string> = {
   3: '业务阶段',
   4: '业务性质',
   5: '系统/专业/阶段',
-  6: '标段级别',
+  6: '品类级别',
 };
 
 /** 允许填写/展示树形说明的目录层级 */
@@ -62,7 +62,7 @@ export function allowsDirectoryTreeDescription(level: DirectoryLevel): boolean {
 
 const UNASSIGNED_DOMAIN_LABEL = '（无系统/专业/阶段）';
 
-/** 第 5 级占位节点（标段未挂专业域时） */
+/** 第 5 级占位节点（品类未挂专业域时） */
 export function unassignedDomainNodeKey(businessTypeId: string): string {
   return `d:none:${businessTypeId}`;
 }

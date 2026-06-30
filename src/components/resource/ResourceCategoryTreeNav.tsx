@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { Plus } from 'lucide-react';
 import type { ClassificationStore } from '@/types';
 import { ClassificationNavPanel } from '@/components/classification/ClassificationNavPanel';
 import {
@@ -11,15 +12,20 @@ import { filterCategoryDirectoryTree } from '@/lib/classification/category-tree-
 
 type Props = {
   store: ClassificationStore;
-  /** 唯一生效的品类级别（叶子节点）id */
   selectedLotLevelId: string;
-  onSelectLotLevel: (lotLevelId: string) => void;
+  onSelectLotLevel: (lotLevelId: string, lotName: string) => void;
+  resourceCountByLotId: ReadonlyMap<string, number>;
+  onCreate?: () => void;
+  canCreate?: boolean;
 };
 
-export function LotScopePicker({
+export function ResourceCategoryTreeNav({
   store,
   selectedLotLevelId,
   onSelectLotLevel,
+  resourceCountByLotId,
+  onCreate,
+  canCreate = true,
 }: Props) {
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(() => new Set());
   const [searchQuery, setSearchQuery] = useState('');
@@ -43,7 +49,7 @@ export function LotScopePicker({
 
   const handleSelect = (node: DirectoryTreeNode) => {
     if (node.level === 6 && node.lotId) {
-      onSelectLotLevel(node.lotId);
+      onSelectLotLevel(node.lotId, node.name);
       return;
     }
     if (node.children.length > 0) {
@@ -55,31 +61,34 @@ export function LotScopePicker({
     }
   };
 
-  return (
-    <div className="border border-slate-200 rounded-lg overflow-hidden bg-white space-y-0">
-      <div className="px-3 py-2.5 border-b border-slate-100 bg-slate-50/80">
-        <div className="text-xs font-semibold text-slate-700">
-          适用品类 <span className="text-rose-500">*</span>
-        </div>
-        <p className="text-[11px] text-slate-500 mt-1 leading-snug">
-          每个资源仅对<strong className="font-medium text-slate-700">一个品类级别</strong>
-          生效；仅在该品类关联的范本编辑器侧栏中可见。
-        </p>
-      </div>
+  const activeNodeKey = selectedLotLevelId ? `l:${selectedLotLevelId}` : undefined;
 
-      <div className="flex flex-col max-h-72 min-h-[12rem]">
-        <ClassificationNavPanel
-          tree={tree}
-          expandedKeys={expandedKeys}
-          searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
-          onToggleExpand={handleToggleExpand}
-          onSelect={handleSelect}
-          readOnly
-          showHeader={false}
-          lotRadioSelection={{ selectedLotLevelId }}
-        />
-      </div>
-    </div>
+  return (
+    <aside className="w-[340px] shrink-0 flex flex-col bg-white rounded-xl border border-slate-200 shadow-sm min-h-0 overflow-hidden">
+      <ClassificationNavPanel
+        tree={tree}
+        activeNodeKey={activeNodeKey}
+        expandedKeys={expandedKeys}
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        onToggleExpand={handleToggleExpand}
+        onSelect={handleSelect}
+        readOnly
+        resourceCountByLotId={resourceCountByLotId}
+        headerAction={
+          onCreate ? (
+            <button
+              type="button"
+              onClick={onCreate}
+              disabled={!canCreate}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              新增
+            </button>
+          ) : undefined
+        }
+      />
+    </aside>
   );
 }

@@ -37,7 +37,7 @@ export type DirectoryFormInput = {
   /** 未传时新增默认 99，编辑保留原值 */
   sortOrder?: number;
   description?: string;
-  /** 标段级别（L6）专用 */
+  /** 品类级别（L6）专用 */
   procurementMethods?: ProcurementMethod[];
   evaluationMethod?: EvaluationMethod;
 };
@@ -432,7 +432,7 @@ function updateDirectoryNode(
 
 export function deleteDirectoryNode(node: DirectoryTreeNode): { ok: boolean; error?: string } {
   if (node.kind === 'lot') {
-    return { ok: false, error: '请使用标段删除或编辑完整表单' };
+    return { ok: false, error: '请使用品类删除或编辑完整表单' };
   }
   if (!window.confirm(`确定删除「${node.name}」及其下级数据？`)) {
     return { ok: false };
@@ -501,7 +501,7 @@ export function deleteDirectoryNode(node: DirectoryTreeNode): { ok: boolean; err
   }
 
   if (node.kind === 'domain' && isUnassignedDomainNodeKey(node.key)) {
-    return { ok: false, error: '系统占位节点不可删除，请删除其下标段' };
+    return { ok: false, error: '系统占位节点不可删除，请删除其下品类' };
   }
 
   if (node.kind === 'domain' && node.domainId) {

@@ -239,7 +239,7 @@ export function LotFormDialog({ open, editing, onClose, onSubmit, error }: Props
       return;
     }
     if (!resolvedLotName) {
-      setLocalError(useCustomLotName ? '请填写新标段名称' : '请选择标段级别');
+      setLocalError(useCustomLotName ? '请填写新品类名称' : '请选择品类级别');
       return;
     }
     if (procurementMethods.length === 0) {
@@ -409,7 +409,7 @@ export function LotFormDialog({ open, editing, onClose, onSubmit, error }: Props
           style={{ height: 56, borderBottom: '1px solid #F2F3F5' }}
         >
           <h3 style={{ fontSize: 15, fontWeight: 600, color: '#1F2329' }}>
-            {editing ? '编辑标段' : '新增标段'}
+            {editing ? '编辑品类' : '新增品类'}
           </h3>
           <button
             type="button"
@@ -587,7 +587,7 @@ export function LotFormDialog({ open, editing, onClose, onSubmit, error }: Props
               </div>
               <div className="block">
                 <label className="block">
-                  <FieldLabel required>标段级别</FieldLabel>
+                  <FieldLabel required>品类级别</FieldLabel>
                   <FormSelect
                     {...selectProps}
                     value={lotNamePick}
@@ -602,13 +602,13 @@ export function LotFormDialog({ open, editing, onClose, onSubmit, error }: Props
                       </option>
                     ))}
                     {!editing && (
-                      <option value={LOT_FORM_CUSTOM_NAME}>+ 输入新标段名称</option>
+                      <option value={LOT_FORM_CUSTOM_NAME}>+ 输入新品类名称</option>
                     )}
                   </FormSelect>
                 </label>
                 {useCustomLotName && (
                   <label className="block mt-2">
-                    <span className="text-[12px] font-medium text-[#4E5969]">新标段名称</span>
+                    <span className="text-[12px] font-medium text-[#4E5969]">新品类名称</span>
                     <input
                       value={customLotName}
                       onChange={(e) => setCustomLotName(e.target.value)}

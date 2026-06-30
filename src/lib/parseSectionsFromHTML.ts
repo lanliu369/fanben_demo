@@ -10,7 +10,8 @@ export function parseSectionsFromHTML(html: string, templateId: string): Templat
   const appendContentToCurrent = (el: HTMLElement) => {
     const current = stack[stack.length - 1];
     if (!current) return false;
-    // 资源引用块保留完整 outerHTML（含 data-text-fragment-id），便于块级高亮、同步与解除关联
+    // 通用模版引用块保留完整 outerHTML（含 data-general-template-paragraph-id）
+    // 资源引用块保留完整 outerHTML（含 data-text-fragment-id）
     current.content += el.outerHTML;
     return true;
   };

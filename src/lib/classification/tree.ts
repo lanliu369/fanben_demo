@@ -42,7 +42,7 @@ export type ClassificationNavBusinessTypeNode = {
   domains: ClassificationNavDomainNode[];
   unassigned: ClassificationNavUnassignedNode | null;
   hasThirdLevel: boolean;
-  /** 无第三级时，标段直接挂在业务类型下 */
+  /** 无第三级时，品类直接挂在业务类型下 */
   directLots: ClassificationNavLotNode[];
 };
 
@@ -68,7 +68,7 @@ export type ClassificationNavSelection = {
   businessTypeId?: string;
   navDomainLevelId?: string;
   filterBusinessSectorId?: string;
-  /** 树形模式：选中的标段叶子节点 */
+  /** 树形模式：选中的品类叶子节点 */
   selectedLotId?: string;
 };
 
@@ -86,7 +86,7 @@ export function computeLotCountMaps(store: ClassificationStore): LotCountMaps {
   return { bySector, byBusinessType, byDomainLevel };
 }
 
-/** 构建四级分类导航树（业务板块 → 业务类型 → 专业域 → 标段） */
+/** 构建四级分类导航树（业务板块 → 业务类型 → 专业域 → 品类） */
 export function buildClassificationNavTree(store: ClassificationStore): ClassificationNavTree {
   const counts = computeLotCountMaps(store);
   return store.businessSectors.map((sector) => {
@@ -221,7 +221,7 @@ export function isUnassignedNavActive(businessTypeId: string, sel: Classificatio
   );
 }
 
-/** 树加载后默认选中第一个标段 */
+/** 树加载后默认选中第一个品类 */
 export function findFirstLotIdInTree(tree: ClassificationNavTree): string | undefined {
   for (const sector of tree) {
     for (const bt of sector.businessTypes) {

@@ -3,7 +3,7 @@ import { migrateLegacyCategoryId } from './migrate';
 import { resolveLotLevelPath } from './resolve';
 import { getClassificationStore } from './storage';
 
-/** 解析实体绑定的标段 ID（兼容旧 categoryId） */
+/** 解析实体绑定的品类 ID（兼容旧 categoryId） */
 export function resolveLotLevelId(
   lotLevelId?: string,
   legacyCategoryId?: string,
@@ -11,7 +11,7 @@ export function resolveLotLevelId(
   return (lotLevelId?.trim() || migrateLegacyCategoryId(legacyCategoryId) || '').trim();
 }
 
-/** 范本仅有标段展示名、无 lotLevelId 时，按招采分类路径反查叶子标段 ID */
+/** 范本仅有品类展示名、无 lotLevelId 时，按招采分类路径反查叶子品类 ID */
 function resolveLotLevelIdFromTemplateNames(
   template: Pick<
     Template,
@@ -52,18 +52,17 @@ export function resolveTemplateLotLevelId(
   return resolveLotLevelIdFromTemplateNames(template);
 }
 
-/** 将资源适用范围中的旧品类 ID 迁移为标段 ID */
+/** 将资源适用范围中的旧品类 ID 迁移为品类 ID */
 export function migrateFragmentLotLevelIds(ids: string[]): string[] {
   return [...new Set(ids.map((id) => migrateLegacyCategoryId(id)).filter(Boolean))];
 }
 
 export function prepareTextFragmentLotScope(input: {
-  applicableToAllLotLevels: boolean;
-  applicableLotLevelIds: string[];
+  applicableLotLevelId: string;
 }): Pick<TextFragment, 'applicableToAllLotLevels' | 'applicableLotLevelIds'> {
-  const universal = input.applicableToAllLotLevels;
+  const id = migrateFragmentLotLevelIds([input.applicableLotLevelId])[0] ?? '';
   return {
-    applicableToAllLotLevels: universal,
-    applicableLotLevelIds: universal ? [] : migrateFragmentLotLevelIds(input.applicableLotLevelIds),
+    applicableToAllLotLevels: false,
+    applicableLotLevelIds: id ? [id] : [],
   };
 }

@@ -12,7 +12,6 @@ type GlobalLoadingContextValue = {
   show: (message?: string) => void;
   hide: () => void;
   wrap: <T>(fn: () => Promise<T>, message?: string) => Promise<T>;
-  state: GlobalLoadingState;
 };
 
 const GlobalLoadingContext = createContext<GlobalLoadingContextValue | null>(null);
@@ -42,7 +41,7 @@ export function GlobalLoadingProvider({ children }: { children: React.ReactNode 
     }
   }, [hide, show]);
 
-  const value = useMemo<GlobalLoadingContextValue>(() => ({ show, hide, wrap, state }), [hide, show, state, wrap]);
+  const value = useMemo<GlobalLoadingContextValue>(() => ({ show, hide, wrap }), [hide, show, wrap]);
 
   return (
     <GlobalLoadingContext.Provider value={value}>

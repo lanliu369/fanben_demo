@@ -120,7 +120,7 @@ function legacyCategoryToLot(
   };
 }
 
-/** 合并迁移结果与默认种子：按 id 去重，种子数据优先保留演示标段 */
+/** 合并迁移结果与默认种子：按 id 去重，种子数据优先保留演示品类 */
 export function mergeMigratedWithDefaultSeed(migrated: ClassificationStore): ClassificationStore {
   const base = JSON.parse(JSON.stringify(defaultClassificationStore)) as ClassificationStore;
   const lotIds = new Set(base.lotLevels.map((l) => l.id));

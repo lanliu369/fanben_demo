@@ -89,17 +89,17 @@ function findImportHeaderRowIndex(matrix: string[][]): number {
 
 function parseRowFields(
   r: string[],
-  col: (name: string) => string,
+  get: (name: string) => string,
 ): ParsedImportRowFields {
   return {
-    sectorName: col('业务板块名称'),
-    energyType: col('能源类型'),
-    businessStage: col('业务阶段'),
-    businessNature: col('业务性质'),
-    domainLevelName: col('系统专业阶段级别'),
-    lotName: col('标段级别'),
-    procurementLabels: col('采购方式'),
-    evaluationLabels: col('评审办法'),
+    sectorName: get('业务板块名称'),
+    energyType: get('能源类型'),
+    businessStage: get('业务阶段'),
+    businessNature: get('业务性质'),
+    domainLevelName: get('系统专业阶段级别'),
+    lotName: get('品类级别') || get('标段级别'),
+    procurementLabels: get('采购方式'),
+    evaluationLabels: get('评审办法'),
   };
 }
 
@@ -163,8 +163,13 @@ export function parseImportFile(buffer: ArrayBuffer): ParseImportResult {
     return { rows: [], errors };
   }
   const header = matrix[headerRowIndex].map((c) => String(c).trim());
-  const col = (name: string) => header.indexOf(name);
-  const missingHeaders = IMPORT_TEMPLATE_HEADERS.filter((h) => col(h) < 0);
+  const colIndex = (name: string) => header.indexOf(name);
+  const missingHeaders = IMPORT_TEMPLATE_HEADERS.filter((h) => {
+    if (h === '品类级别') {
+      return colIndex('品类级别') < 0 && colIndex('标段级别') < 0;
+    }
+    return colIndex(h) < 0;
+  });
   if (missingHeaders.length > 0) {
     errors.push(`缺少列：${missingHeaders.join('、')}（请下载标准模板）`);
   }
@@ -174,7 +179,7 @@ export function parseImportFile(buffer: ArrayBuffer): ParseImportResult {
     const r = matrix[i];
     if (!r || r.every((c) => !String(c).trim())) continue;
     const get = (name: string) => {
-      const idx = col(name);
+      const idx = colIndex(name);
       return idx >= 0 ? String(r[idx] ?? '').trim() : '';
     };
     const fields = parseRowFields(r, get);
@@ -270,7 +275,7 @@ export function validateImportRows(rows: ImportRow[], store?: ClassificationStor
       .join('-');
 
     if (!row.sectorName?.trim() || !row.lotName?.trim()) {
-      const msg = '缺少业务板块名称或标段级别';
+      const msg = '缺少业务板块名称或品类级别';
       issues.push({ rowIndex: row.rowIndex, level: 'error', message: msg });
       messages.push(msg);
       errorCount++;
@@ -324,7 +329,7 @@ export function validateImportRows(rows: ImportRow[], store?: ClassificationStor
           evaluationMethods,
         };
         if (checkLotDuplicate(s, form)) {
-          messages.push('系统中已存在相同路径标段，导入时将跳过');
+          messages.push('系统中已存在相同路径品类，导入时将跳过');
           duplicateCount++;
           outcome = 'duplicate';
         } else {
@@ -344,7 +349,7 @@ export function validateImportRows(rows: ImportRow[], store?: ClassificationStor
 export type ImportCommitResult = {
   imported: number;
   skipped: number;
-  /** 本次成功写入的标段 id，供页面刷新后定位 */
+  /** 本次成功写入的品类 id，供页面刷新后定位 */
   importedLotIds: string[];
 };
 

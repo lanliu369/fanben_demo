@@ -1,5 +1,6 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import { useMemo } from 'react';
 import {
   Building2,
@@ -47,18 +48,19 @@ function LevelIcon({ level }: { level: DirectoryLevel }) {
   }
 }
 
-type Props = {
-  tree: DirectoryTreeNode[];
+type TreeNodeRowProps = {
+  node: DirectoryTreeNode;
+  depth: number;
   activeNodeKey?: string;
   expandedKeys: Set<string>;
-  searchQuery: string;
-  onSearchChange: (q: string) => void;
   onToggleExpand: (key: string) => void;
   onSelect: (node: DirectoryTreeNode) => void;
-  onAddRoot: () => void;
-  onAddChild: (node: DirectoryTreeNode) => void;
-  onEdit: (node: DirectoryTreeNode) => void;
-  onDelete: (node: DirectoryTreeNode) => void;
+  onAddChild?: (node: DirectoryTreeNode) => void;
+  onEdit?: (node: DirectoryTreeNode) => void;
+  onDelete?: (node: DirectoryTreeNode) => void;
+  readOnly?: boolean;
+  resourceCountByLotId?: ReadonlyMap<string, number>;
+  lotRadioSelection?: { selectedLotLevelId: string };
 };
 
 function TreeNodeRow({
@@ -71,22 +73,22 @@ function TreeNodeRow({
   onAddChild,
   onEdit,
   onDelete,
-}: {
-  node: DirectoryTreeNode;
-  depth: number;
-  activeNodeKey?: string;
-  expandedKeys: Set<string>;
-  onToggleExpand: (key: string) => void;
-  onSelect: (node: DirectoryTreeNode) => void;
-  onAddChild: (node: DirectoryTreeNode) => void;
-  onEdit: (node: DirectoryTreeNode) => void;
-  onDelete: (node: DirectoryTreeNode) => void;
-}) {
+  readOnly,
+  resourceCountByLotId,
+  lotRadioSelection,
+}: TreeNodeRowProps) {
   const hasChildren = node.children.length > 0;
   const expanded = expandedKeys.has(node.key);
-  const active = activeNodeKey === node.key;
-  const canAddChild = node.level < 6;
+  const lotRadioActive =
+    lotRadioSelection && node.level === 6 && node.lotId
+      ? lotRadioSelection.selectedLotLevelId === node.lotId
+      : false;
+  const active = lotRadioSelection ? lotRadioActive : activeNodeKey === node.key;
+  const canAddChild = !readOnly && node.level < 6;
   const showExpandToggle = node.level < 6;
+  const showCrud = !readOnly && onAddChild && onEdit && onDelete;
+  const resourceCount =
+    node.level === 6 && node.lotId ? (resourceCountByLotId?.get(node.lotId) ?? 0) : 0;
 
   return (
     <div>
@@ -111,6 +113,17 @@ function TreeNodeRow({
         ) : null}
 
         <button type="button" className={categoryUi.treeLabelBtn} onClick={() => onSelect(node)}>
+          {lotRadioSelection && node.level === 6 && node.lotId ? (
+            <input
+              type="radio"
+              name="resource-lot-scope"
+              checked={lotRadioActive}
+              readOnly
+              tabIndex={-1}
+              className="border-slate-300 text-blue-600 focus:ring-blue-500 shrink-0 pointer-events-none"
+              aria-hidden
+            />
+          ) : null}
           <LevelIcon level={node.level} />
           <span className={`${categoryUi.treeLabel} ${active ? 'text-blue-600 font-medium' : ''}`}>
             {node.name}
@@ -122,35 +135,45 @@ function TreeNodeRow({
               aria-hidden
             />
           ) : null}
+          {resourceCount > 0 ? (
+            <span className={categoryUi.badge}>{resourceCount}</span>
+          ) : null}
         </button>
 
-        <div
-          className={`${categoryUi.treeOps} ${active ? 'flex' : categoryUi.treeOpsHidden}`}
-          onClick={(e) => e.stopPropagation()}
-          role="presentation"
-        >
-          {canAddChild ? (
+        {showCrud ? (
+          <div
+            className={`${categoryUi.treeOps} ${active ? 'flex' : categoryUi.treeOpsHidden}`}
+            onClick={(e) => e.stopPropagation()}
+            role="presentation"
+          >
+            {canAddChild ? (
+              <button
+                type="button"
+                className={categoryUi.treeOpBtn}
+                title="新增子目录"
+                onClick={() => onAddChild(node)}
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+            ) : null}
             <button
               type="button"
               className={categoryUi.treeOpBtn}
-              title="新增子目录"
-              onClick={() => onAddChild(node)}
+              title="编辑"
+              onClick={() => onEdit(node)}
             >
-              <Plus className="w-3.5 h-3.5" />
+              <Pencil className="w-3.5 h-3.5" />
             </button>
-          ) : null}
-          <button type="button" className={categoryUi.treeOpBtn} title="编辑" onClick={() => onEdit(node)}>
-            <Pencil className="w-3.5 h-3.5" />
-          </button>
-          <button
-            type="button"
-            className={`${categoryUi.treeOpBtn} ${categoryUi.treeOpBtnDanger}`}
-            title="删除"
-            onClick={() => onDelete(node)}
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
-        </div>
+            <button
+              type="button"
+              className={`${categoryUi.treeOpBtn} ${categoryUi.treeOpBtnDanger}`}
+              title="删除"
+              onClick={() => onDelete(node)}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ) : null}
       </div>
 
       {hasChildren && expanded ? (
@@ -167,6 +190,9 @@ function TreeNodeRow({
               onAddChild={onAddChild}
               onEdit={onEdit}
               onDelete={onDelete}
+              readOnly={readOnly}
+              resourceCountByLotId={resourceCountByLotId}
+              lotRadioSelection={lotRadioSelection}
             />
           ))}
         </div>
@@ -174,6 +200,30 @@ function TreeNodeRow({
     </div>
   );
 }
+
+type Props = {
+  tree: DirectoryTreeNode[];
+  activeNodeKey?: string;
+  expandedKeys: Set<string>;
+  searchQuery: string;
+  onSearchChange: (q: string) => void;
+  onToggleExpand: (key: string) => void;
+  onSelect: (node: DirectoryTreeNode) => void;
+  onAddRoot?: () => void;
+  onAddChild?: (node: DirectoryTreeNode) => void;
+  onEdit?: (node: DirectoryTreeNode) => void;
+  onDelete?: (node: DirectoryTreeNode) => void;
+  readOnly?: boolean;
+  showHeader?: boolean;
+  headerTitle?: string;
+  showSearch?: boolean;
+  resourceCountByLotId?: ReadonlyMap<string, number>;
+  lotRadioSelection?: { selectedLotLevelId: string };
+  footer?: ReactNode;
+  treeScrollClassName?: string;
+  /** 标题栏右侧自定义操作（如资源管理「新增」） */
+  headerAction?: ReactNode;
+};
 
 export function ClassificationNavPanel({
   tree,
@@ -187,6 +237,15 @@ export function ClassificationNavPanel({
   onAddChild,
   onEdit,
   onDelete,
+  readOnly = false,
+  showHeader = true,
+  headerTitle = '目录树',
+  showSearch = true,
+  resourceCountByLotId,
+  lotRadioSelection,
+  footer,
+  treeScrollClassName,
+  headerAction,
 }: Props) {
   const { tree: displayTree } = useMemo(
     () => filterCategoryDirectoryTree(tree, searchQuery),
@@ -195,32 +254,43 @@ export function ClassificationNavPanel({
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
-      <div className={categoryUi.treePanelHead}>
-        <span className="text-sm font-semibold text-slate-900 shrink-0">目录树</span>
-        <button
-          type="button"
-          className={`${categoryUi.treeIconBtn} text-blue-600 hover:bg-blue-50`}
-          title="新增一级目录"
-          onClick={onAddRoot}
-        >
-          <Plus className="w-3.5 h-3.5" />
-        </button>
-      </div>
-
-      <div className="px-3 py-2 border-b border-slate-100 shrink-0">
-        <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
-          <input
-            type="search"
-            value={searchQuery}
-            onChange={(e) => onSearchChange(e.target.value)}
-            placeholder="搜索目录…"
-            className={categoryUi.searchInput}
-          />
+      {showHeader ? (
+        <div className={categoryUi.treePanelHead}>
+          <span className="text-sm font-semibold text-slate-900 shrink-0">{headerTitle}</span>
+          <div className="flex items-center gap-0.5 shrink-0">
+            {headerAction}
+            {!readOnly && onAddRoot ? (
+              <button
+                type="button"
+                className={`${categoryUi.treeIconBtn} text-blue-600 hover:bg-blue-50`}
+                title="新增一级目录"
+                onClick={onAddRoot}
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+            ) : null}
+          </div>
         </div>
-      </div>
+      ) : null}
 
-      <div className="flex-1 overflow-y-auto overflow-x-hidden py-1 min-h-0">
+      {showSearch ? (
+        <div className="px-3 py-2 border-b border-slate-100 shrink-0">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(e) => onSearchChange(e.target.value)}
+              placeholder="搜索目录…"
+              className={categoryUi.searchInput}
+            />
+          </div>
+        </div>
+      ) : null}
+
+      <div
+        className={`flex-1 overflow-y-auto overflow-x-hidden py-1 min-h-0 ${treeScrollClassName ?? ''}`}
+      >
         {displayTree.length === 0 ? (
           <p className="px-4 py-8 text-center text-sm text-slate-500">暂无目录数据</p>
         ) : (
@@ -236,10 +306,17 @@ export function ClassificationNavPanel({
               onAddChild={onAddChild}
               onEdit={onEdit}
               onDelete={onDelete}
+              readOnly={readOnly}
+              resourceCountByLotId={resourceCountByLotId}
+              lotRadioSelection={lotRadioSelection}
             />
           ))
         )}
       </div>
+
+      {footer ? (
+        <div className="shrink-0 border-t border-slate-100 bg-slate-50/80">{footer}</div>
+      ) : null}
     </div>
   );
 }

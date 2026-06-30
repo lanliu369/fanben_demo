@@ -181,7 +181,7 @@ export function CategoryFilterBar({
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
           <input
             type="text"
-            placeholder="标段名称 / 路径"
+            placeholder="品类名称 / 路径"
             value={filters.lotName ?? ''}
             onChange={(e) => patch({ lotName: e.target.value || undefined })}
             className={categoryUi.searchInput}

@@ -19,7 +19,7 @@ type Props = {
   onChange: (value: LotCascadeValue) => void;
   store?: ClassificationStore;
   required?: boolean;
-  /** 隐藏标段单选（改由 LotLevelMultiSelect 承担） */
+  /** 隐藏品类级别（由外部单独渲染时设为 true） */
   hideLotLevel?: boolean;
 };
 
@@ -76,7 +76,7 @@ export function LotCascadeFields({ value, onChange, store: storeProp, required, 
       !l.domainLevelId,
   );
 
-  // 标段级别
+  // 品类级别
   const lots = store.lotLevels.filter((l) => {
     if (value.businessSectorId && l.businessSectorId !== value.businessSectorId) return false;
     if (matchedBusinessTypeId && l.businessTypeId !== matchedBusinessTypeId) return false;
@@ -222,7 +222,7 @@ export function LotCascadeFields({ value, onChange, store: storeProp, required, 
       {!hideLotLevel && (
         <div>
           <label className="block text-xs font-medium text-slate-600 mb-1.5">
-            标段级别 {required && <span className="text-rose-500">*</span>}
+            品类级别 {required && <span className="text-rose-500">*</span>}
           </label>
           <FormSelect
             value={value.lotLevelId}

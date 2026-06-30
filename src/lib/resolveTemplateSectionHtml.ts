@@ -1,7 +1,14 @@
 import type { Template, TemplateSection, TextFragment } from '@/types';
+import type { GeneralTemplateParsedContent } from '@/types';
 import { resolveTemplateLotLevelId } from '@/lib/classification';
 import { bindingMatchesSection } from '@/lib/textBindingMatch';
 import { expandNestedResourceEmbeds } from '@/lib/resourceEmbedHtml';
+import { syncGeneralTemplateBlocksInHtml } from '@/lib/generalTemplateParagraphHtml';
+import { canonicalParagraphMap } from '@/lib/generalTemplateApply';
+import {
+  detachManuallyEditedGeneralTemplateSections,
+  syncUnchangedLinkedGeneralTemplateOnSave,
+} from '@/lib/generalTemplateSync';
 import {
   normalizeComparablePlainText,
   reconcileExportedResourceBlocksInHtml,
@@ -21,7 +28,7 @@ import {
  *    - 新版：`templateId` + `templateSectionId`（与范本、章节节点一致）
  *    - 兼容旧版：`frameworkId` + `chapterId`（与范本 frameworkId、章节 chapterId 一致）
  *
- * 正文中若含「资源嵌入」占位，再按范本标段展开为被引用资源的正文。
+ * 正文中若含「资源嵌入」占位，再按范本品类展开为被引用资源的正文。
  */
 export function resolveSectionRichHtml(
   section: TemplateSection,
@@ -93,6 +100,49 @@ function buildPreviousSectionMap(
     }
   }
   return map;
+}
+
+/** 保存前：资源 + 通用模版引用段落的手动编辑解除关联 */
+export function detachManuallyEditedLinkedSections(
+  sections: TemplateSection[],
+  template: Template,
+  fragments: TextFragment[],
+  previousSections: TemplateSection[] = [],
+  generalTemplateParsed?: GeneralTemplateParsedContent | null,
+): TemplateSection[] {
+  let result = detachManuallyEditedResourceSections(
+    sections,
+    template,
+    fragments,
+    previousSections,
+  );
+  if (template.generalTemplateId && generalTemplateParsed) {
+    result = detachManuallyEditedGeneralTemplateSections(
+      result,
+      template.generalTemplateId,
+      generalTemplateParsed,
+      previousSections,
+    );
+  }
+  return result;
+}
+
+/** 保存时：刷新仍关联的资源与通用模版段落 */
+export function syncUnchangedLinkedContentOnSave(
+  sections: TemplateSection[],
+  template: Template,
+  fragments: TextFragment[],
+  generalTemplateParsed?: GeneralTemplateParsedContent | null,
+): TemplateSection[] {
+  let result = syncUnchangedLinkedResourcesOnSave(sections, template, fragments);
+  if (template.generalTemplateId && generalTemplateParsed) {
+    result = syncUnchangedLinkedGeneralTemplateOnSave(
+      result,
+      template.generalTemplateId,
+      generalTemplateParsed,
+    );
+  }
+  return result;
 }
 
 /**
@@ -209,8 +259,11 @@ export function buildSectionsHtmlWithResources(
   template: Template,
   fragments: TextFragment[],
   depth = 0,
+  generalTemplateParsed?: GeneralTemplateParsedContent | null,
 ): string {
   const canonicalMap = canonicalByFragmentId(template, fragments);
+  const gtCanonical = generalTemplateParsed ? canonicalParagraphMap(generalTemplateParsed) : null;
+  const gtId = template.generalTemplateId?.trim() ?? '';
   return sections
     .map((section) => {
       const stored = (section.content ?? '').trim();
@@ -232,6 +285,13 @@ export function buildSectionsHtmlWithResources(
             body = syncResourceBlocksInHtml(body, fid, canonical);
           }
         }
+        if (gtId && gtCanonical) {
+          for (const [pid, canonical] of gtCanonical) {
+            if (body.includes(`data-general-template-paragraph-id="${pid}"`)) {
+              body = syncGeneralTemplateBlocksInHtml(body, gtId, pid, canonical);
+            }
+          }
+        }
       } else {
         body = resolveSectionRichHtml(section, template, fragments);
         if (section.textFragmentId && sectionBodyIsFromResource(section, template, fragments)) {
@@ -240,7 +300,13 @@ export function buildSectionsHtmlWithResources(
       }
 
       const childrenHtml = section.children?.length
-        ? buildSectionsHtmlWithResources(section.children, template, fragments, depth + 1)
+        ? buildSectionsHtmlWithResources(
+            section.children,
+            template,
+            fragments,
+            depth + 1,
+            generalTemplateParsed,
+          )
         : '';
 
       if (!section.title.trim()) {

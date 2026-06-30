@@ -75,7 +75,7 @@ export function CategoryListView({
         <table className={categoryUi.table}>
           <thead className={categoryUi.tableHead}>
             <tr className={categoryUi.tableHeadRow}>
-              <th className={`${categoryUi.tableTh} w-[15%]`}>标段级别</th>
+              <th className={`${categoryUi.tableTh} w-[15%]`}>品类级别</th>
               <th className={`${categoryUi.tableTh} w-[36%]`}>所属业务路径</th>
               <th className={`${categoryUi.tableTh} w-[14%]`}>采购方式</th>
               <th className={`${categoryUi.tableTh} w-[14%]`}>评审办法</th>
@@ -87,7 +87,7 @@ export function CategoryListView({
             {rows.length === 0 ? (
               <tr>
                 <td colSpan={6} className={categoryUi.tableEmpty}>
-                  暂无标段数据
+                  暂无品类数据
                 </td>
               </tr>
             ) : (

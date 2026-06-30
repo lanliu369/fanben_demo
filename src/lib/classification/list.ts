@@ -2,7 +2,7 @@ import type { ClassificationStore, LotLevel } from '@/types';
 import type { EvaluationMethod, ProcurementMethod } from './constants';
 import { formatLotBusinessPath, resolveLotLevelPath } from './resolve';
 
-/** 标段列表行视图（与 UI 解耦，便于列表/导出复用） */
+/** 品类列表行视图（与 UI 解耦，便于列表/导出复用） */
 export type LotTableRow = {
   lot: LotLevel;
   businessPath: string;

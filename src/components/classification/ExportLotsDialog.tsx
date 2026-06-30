@@ -103,7 +103,7 @@ export function ExportLotsDialog({
           <div>
             <h3 className="text-lg font-semibold text-slate-900">导出品类</h3>
             <p className="text-xs text-slate-400 mt-0.5">
-              支持 Excel / CSV；字段含业务板块、能源类型、阶段、性质、专业域、标段、规则与更新时间
+              支持 Excel / CSV；字段含业务板块、能源类型、阶段、性质、专业域、品类、规则与更新时间
             </p>
           </div>
           <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1">
@@ -125,7 +125,7 @@ export function ExportLotsDialog({
                 />
                 <span>
                   <span className="font-medium text-slate-800">全量导出</span>
-                  <span className="block text-xs text-slate-500 mt-0.5">导出全部标段（{store.lotLevels.length} 条）</span>
+                  <span className="block text-xs text-slate-500 mt-0.5">导出全部品类（{store.lotLevels.length} 条）</span>
                 </span>
               </label>
               <label
@@ -242,7 +242,7 @@ export function ExportLotsDialog({
                   ))}
                 </FormSelect>
                 <input
-                  placeholder="标段名称 / 路径"
+                  placeholder="品类名称 / 路径"
                   value={customFilters.lotName ?? ''}
                   onChange={(e) => patchCustom({ lotName: e.target.value || undefined })}
                   className="w-full border border-slate-200 rounded-md px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-blue-500/30"

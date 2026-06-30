@@ -197,7 +197,7 @@ function validateLotFormInput(input: LotFormInput): string | null {
   if (!input.energyType?.trim()) return '请填写能源类型';
   if (!input.businessStage?.trim()) return '请填写业务阶段';
   if (!input.businessNature?.trim()) return '请填写业务性质';
-  if (!input.lotName?.trim()) return '请填写标段级别';
+  if (!input.lotName?.trim()) return '请填写品类级别';
   if (!input.procurementMethods?.length) return '请至少选择一种采购方式';
   if (!input.evaluationMethods?.length) return '请选择评审办法';
   return null;
@@ -208,7 +208,7 @@ export function createLotLevel(input: LotFormInput): { lot: LotLevel; error?: st
   if (validationError) return { lot: {} as LotLevel, error: validationError };
   const store = getClassificationStore();
   if (checkLotDuplicate(store, input)) {
-    return { lot: {} as LotLevel, error: '已存在相同业务路径的标段，请勿重复创建' };
+    return { lot: {} as LotLevel, error: '已存在相同业务路径的品类，请勿重复创建' };
   }
   const sector = store.businessSectors.find((s) => s.id === input.businessSectorId);
   if (!sector) return { lot: {} as LotLevel, error: '业务板块不存在' };
@@ -258,9 +258,9 @@ export function updateLotLevel(
   if (validationError) return { lot: {} as LotLevel, error: validationError };
   const store = getClassificationStore();
   const idx = store.lotLevels.findIndex((l) => l.id === lotId);
-  if (idx < 0) return { lot: {} as LotLevel, error: '标段不存在' };
+  if (idx < 0) return { lot: {} as LotLevel, error: '品类不存在' };
   if (checkLotDuplicate(store, input, lotId)) {
-    return { lot: {} as LotLevel, error: '已存在相同业务路径的标段' };
+    return { lot: {} as LotLevel, error: '已存在相同业务路径的品类' };
   }
   const sector = store.businessSectors.find((s) => s.id === input.businessSectorId);
   if (!sector) return { lot: {} as LotLevel, error: '业务板块不存在' };
@@ -314,7 +314,7 @@ export type NodeDescriptionTarget =
   | { kind: 'businessType'; id: string }
   | { kind: 'domain'; id: string };
 
-/** 更新分类节点说明（字典元数据，不影响标段业务字段） */
+/** 更新分类节点说明（字典元数据，不影响品类业务字段） */
 export function patchClassificationNodeDescription(
   target: NodeDescriptionTarget,
   description: string,

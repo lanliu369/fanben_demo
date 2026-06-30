@@ -94,7 +94,7 @@ function lotsUnderCascade(
   });
 }
 
-/** 根据范本名称拆分并匹配品类目录各层级（标段支持多个） */
+/** 根据范本名称拆分并匹配品类目录各层级（品类单选） */
 export function parseTemplateName(
   name: string,
   store: ClassificationStore,
@@ -135,6 +135,7 @@ export function parseTemplateName(
         );
       })
       .map((l) => l.id);
+    const selectedLotId = compatibleIds[0] ?? '';
 
     const sector = store.businessSectors.find((s) => s.id === cascade.businessSectorId);
     if (sector) matchedLabels.push(sector.name);
@@ -144,17 +145,16 @@ export function parseTemplateName(
       const domain = store.domainLevels.find((d) => d.id === cascade.domainLevelId);
       if (domain) matchedLabels.push(domain.name);
     }
-    for (const l of lotsInName.filter((x) => compatibleIds.includes(x.id))) {
-      matchedLabels.push(l.name);
-    }
+    const selectedLot = lotsInName.find((x) => x.id === selectedLotId);
+    if (selectedLot) matchedLabels.push(selectedLot.name);
 
     if (compatibleIds.length > 1) {
-      warnings.push(`名称中识别到 ${compatibleIds.length} 个标段，已自动多选`);
+      warnings.push(`名称中识别到 ${compatibleIds.length} 个品类，已选用第一个`);
     }
 
     return {
-      cascade: { ...cascade, lotLevelId: compatibleIds[0] ?? '' },
-      matchedLotIds: compatibleIds,
+      cascade: { ...cascade, lotLevelId: selectedLotId },
+      matchedLotIds: selectedLotId ? [selectedLotId] : [],
       matchedLabels: [...new Set(matchedLabels)],
       warnings,
     };
@@ -220,9 +220,9 @@ export function parseTemplateName(
 
   const availableLots = lotsUnderCascade(store, cascade);
   if (availableLots.length === 0 && matchedLabels.length === 0) {
-    warnings.push('未从名称中识别到品类要素，请确认名称包含准确的品类/标段名称');
+    warnings.push('未从名称中识别到品类要素，请确认名称包含准确的品类名称');
   } else if (availableLots.length > 0 && lotsInName.length === 0) {
-    warnings.push('已匹配上级品类，请在下拉中多选标段级别');
+    warnings.push('已匹配上级品类，请在下拉中选择品类级别');
   }
 
   return {
@@ -231,4 +231,28 @@ export function parseTemplateName(
     matchedLabels: [...new Set(matchedLabels)],
     warnings,
   };
+}
+
+const TEMPLATE_NAME_SUFFIX = '招标范本';
+
+/** 新建范本：业务板块 + 能源类型 + 业务阶段 + 品类名称 + 招标范本 */
+export function buildAutoTemplateName(
+  store: ClassificationStore,
+  lotLevelId: string,
+): string {
+  const lot = store.lotLevels.find((l) => l.id === lotLevelId);
+  if (!lot) return '';
+  const sector = store.businessSectors.find((s) => s.id === lot.businessSectorId);
+  const bt = store.businessTypes.find((b) => b.id === lot.businessTypeId);
+  const prefix = [
+    sector?.name ?? '',
+    bt?.energyType ?? '',
+    bt?.businessStage ?? '',
+    lot.name,
+  ]
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .join('');
+  if (!prefix) return '';
+  return `${prefix}${TEMPLATE_NAME_SUFFIX}`;
 }

@@ -12,6 +12,11 @@ import { resolveTemplateLotLevelId } from '@/lib/classification';
 import { expandNestedResourceEmbeds } from '@/lib/resourceEmbedHtml';
 import { syncResourceBlocksInHtml } from '@/lib/quotedBlockHtml';
 import {
+  collectTemplateIdsUsingGeneralTemplate,
+  syncGeneralTemplateParagraphsInSections,
+} from '@/lib/generalTemplateSync';
+import { getGeneralTemplateParsedContent, listGeneralTemplates, patchGeneralTemplateManifest } from '@/lib/general-templates';
+import {
   collectFragmentIdsFromSection,
   sectionReferencesFragment,
   templateReferencesFragment,
@@ -26,6 +31,7 @@ import {
   templateFieldsFromLotPath,
 } from '@/lib/classification';
 import { SPIC_DEVICE_PROCUREMENT_202603_RESOURCES } from '@/lib/seed/spicDeviceProcurement202603Resources';
+import { DEDICATED_RESOURCE_MULTI_LOT_DEMO } from '@/lib/seed/dedicatedResourceMultiLotDemo';
 
 type SoftRow = { id: string; deletedAt?: string; deletedBy?: string };
 
@@ -45,14 +51,19 @@ const STORAGE_KEYS = {
 } as const;
 
 /** 资源种子版本：变更后浏览器自动重置为最新 Mock 数据 */
-const TEXT_FRAGMENTS_SEED_VERSION = 'spic-202603-section-merge-v5';
+const TEXT_FRAGMENTS_SEED_VERSION = 'spic-202603-section-merge-v6-multi-lot-demo';
 
 const LEGACY_TEXT_FRAGMENTS_KEY = 'oo-text-fragments';
 
-/** 现行种子条数（按节合并后约 77 条）；旧版「每段一条」缓存约 200～400 条 */
-const TEXT_FRAGMENTS_SEED_EXPECTED_COUNT = SPIC_DEVICE_PROCUREMENT_202603_RESOURCES.length;
+const defaultTextFragments: TextFragment[] = [
+  ...SPIC_DEVICE_PROCUREMENT_202603_RESOURCES,
+  ...DEDICATED_RESOURCE_MULTI_LOT_DEMO,
+];
 
-const SEED_MODULE_COUNTS = SPIC_DEVICE_PROCUREMENT_202603_RESOURCES.reduce(
+/** 现行种子条数 */
+const TEXT_FRAGMENTS_SEED_EXPECTED_COUNT = defaultTextFragments.length;
+
+const SEED_MODULE_COUNTS = defaultTextFragments.reduce(
   (acc, f) => {
     const m = f.module ?? 'text';
     acc[m] = (acc[m] ?? 0) + 1;
@@ -166,12 +177,12 @@ function flattenSectionTitles(sections: TemplateSection[]): Map<string, string> 
   return m;
 }
 
-/** 复制范本时由用户填写的新范本元信息（标段 / 名称等） */
+/** 复制范本时由用户填写的新范本元信息（品类 / 名称等） */
 export interface DuplicateTemplateOptions {
   name: string;
   description?: string;
   lotLevelId: string;
-  /** 留空则按目标标段下已有范本数量自动生成 V{n}.0 */
+  /** 留空则按目标品类下已有范本数量自动生成 V{n}.0 */
   version?: string;
 }
 
@@ -281,7 +292,7 @@ export function duplicateMockTemplate(
     entityId: newTemplateId,
     label: copyLabel,
     detail: options
-      ? `复制自 ${source.name}（${sourceId}），新标段 ${options.lotLevelId}`
+      ? `复制自 ${source.name}（${sourceId}），新品类 ${options.lotLevelId}`
       : `一键复制自 ${source.name}（${sourceId}）`,
     actor: getMockActor(),
   });
@@ -333,12 +344,12 @@ function writeStorage<T>(key: string, value: T) {
   }
 }
 
-/** 从标段 ID 解析完整路径 */
+/** 从品类 ID 解析完整路径 */
 export function getLotLevelPath(lotLevelId: string): LotLevelPath | null {
   return resolveLotLevelPath(migrateLegacyCategoryId(lotLevelId));
 }
 
-/** 标段展示标签（业务板块 / 业务类型 / 标段名） */
+/** 品类展示标签（业务板块 / 业务类型 / 品类名） */
 export function getLotLevelLabel(lotLevelId: string) {
   const path = getLotLevelPath(lotLevelId);
   if (!path) return null;
@@ -355,7 +366,7 @@ export function getLotLevelLabel(lotLevelId: string) {
 /** @deprecated 使用 getLotLevelLabel */
 export const getCategoryLabel = getLotLevelLabel;
 
-/** 获取全部标段扁平列表 */
+/** 获取全部品类扁平列表 */
 export function getAllLotLevels() {
   const store = getClassificationStore();
   return store.lotLevels.map((lot) => {
@@ -367,8 +378,7 @@ export function getAllLotLevels() {
 /** @deprecated */
 export const getAllCategories = getAllLotLevels;
 
-// ─── Mock 文本片段数据（国家电投设备采购招标文件范本 2026 按段落拆分）────────────────
-const defaultTextFragments: TextFragment[] = SPIC_DEVICE_PROCUREMENT_202603_RESOURCES;
+// ─── Mock 文本片段数据（国家电投设备采购招标文件范本 2026 按段落拆分 + 演示数据）────────────────
 
 function loadTextFragmentsFromStorage(): TextFragment[] {
   if (typeof window === 'undefined') {
@@ -808,6 +818,48 @@ export function syncTextFragmentToAllTemplates(textFragmentId: string) {
     entityId: textFragmentId,
     label: frag.name,
     detail: '同步到所有范本',
+    actor: getMockActor(),
+  });
+}
+
+/** 将通用模版当前解析稿写入所有仍引用该模版的范本（仅更新仍有关联标记的段落） */
+export function syncGeneralTemplateToAllTemplates(generalTemplateId: string) {
+  if (typeof window !== 'undefined') {
+    mockTemplates = readStorage(STORAGE_KEYS.templates, mockTemplates);
+  }
+  const parsed = getGeneralTemplateParsedContent(generalTemplateId);
+  if (!parsed) return;
+
+  const cv = parsed.contentVersion;
+  const now = new Date().toISOString().split('T')[0];
+  const gtId = generalTemplateId.trim();
+  const tids = collectTemplateIdsUsingGeneralTemplate(gtId, mockTemplates);
+
+  mockTemplates = mockTemplates.map((tpl) => {
+    if (tpl.deletedAt || tpl.generalTemplateId !== gtId) return tpl;
+    const sections = syncGeneralTemplateParagraphsInSections(tpl.sections, gtId, parsed);
+    return {
+      ...tpl,
+      sections,
+      generalTemplateSyncedVersion: cv,
+      updatedAt: now,
+    };
+  });
+  writeStorage(STORAGE_KEYS.templates, mockTemplates);
+
+  const synced: Record<string, number> = {};
+  for (const tid of tids) {
+    synced[tid] = cv;
+  }
+  patchGeneralTemplateManifest(generalTemplateId, { templateSyncedVersion: synced, updatedAt: now });
+
+  const gt = listGeneralTemplates().find((g) => g.id === generalTemplateId);
+  appendDataAudit({
+    scope: 'template',
+    action: 'update',
+    entityId: generalTemplateId,
+    label: gt?.name ?? generalTemplateId,
+    detail: `同步到 ${tids.length} 个引用范本`,
     actor: getMockActor(),
   });
 }

@@ -2,11 +2,9 @@
 
 import { useState, useMemo, useEffect } from 'react';
 import {
-  Plus, Edit2, Trash2, FileText, Download, X, Upload,
-  ChevronDown, ChevronUp, ChevronRight, Sparkles, Loader2,
-  Send, Filter, CalendarDays, RotateCcw, ClipboardList, Copy, Settings,
+  Plus, Edit2, Trash2, FileText, Download, X,
+  Send, ClipboardList, Copy, Settings,
 } from 'lucide-react';
-import mammoth from 'mammoth';
 import { asBlob } from 'html-docx-js-typescript';
 import type { Template, Framework, TemplateSection, Chapter } from '@/types';
 import {
@@ -37,7 +35,6 @@ import { OperationLogDialog } from '@/components/ui/OperationLogDialog';
 import { systemUi } from '@/lib/systemUi';
 import { FormSelect } from '@/components/ui/FormSelect';
 import { resolveSectionRichHtml } from '@/lib/resolveTemplateSectionHtml';
-import { parseSectionsFromHTML } from './TemplateEditor';
 import { WpsTemplateEditor } from '@/components/editor/WpsTemplateEditor';
 import { saveTemplateDocxCache } from '@/lib/templateDocxCache';
 import { SystemDialog } from '@/components/ui/SystemDialog';
@@ -46,275 +43,25 @@ import { SystemTooltip } from '@/components/ui/SystemTooltip';
 import { useGlobalLoading } from '@/components/ui/GlobalLoading';
 import { useAppShell } from '@/contexts/AppShellContext';
 import { previewTableText } from '@/lib/previewText';
-import { parseDocxEnhanced } from '@/lib/docxImport/enhancedDocxParser';
 import { sortByCreatedAtDesc } from '@/lib/sortByCreatedAtDesc';
+import { buildTemplateSectionsFromGeneralTemplate, composeReferencedTemplateFromGeneralTemplate } from '@/lib/generalTemplateApply';
+import { buildSectionsHtmlWithResources } from '@/lib/resolveTemplateSectionHtml';
+import { calcTemplateEditProgress } from '@/lib/templateEditProgress';
+import { getGeneralTemplateParsedContent, generalTemplateHasParsedContent, listGeneralTemplates, patchGeneralTemplateManifest } from '@/lib/general-templates';
+import { templateReferencesGeneralTemplate } from '@/lib/generalTemplateSync';
+import {
+  buildAiMatchGroups,
+  lotMetaFromTemplate,
+  scoreTemplateItem,
+  type TemplateListAiMatchGroup,
+} from '@/lib/templateListQuery';
+import {
+  TemplateAiSearchPanel,
+  TemplateCategoryFilterPanel,
+  TemplateListActiveFilterTags,
+  TemplateUpdatedTimeFilterPanel,
+} from '@/components/templates/TemplateListQueryPanels';
 
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-function createPageBreak(doc: Document): HTMLDivElement {
-  const div = doc.createElement('div');
-  div.className = 'page-break';
-  return div;
-}
-
-function postProcessMammothHTML(html: string): string {
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(html, 'text/html');
-  const body = doc.body;
-
-  const firstHeading = body.querySelector('h1, h2, h3, h4, h5, h6');
-  const preHeadingParagraphs: HTMLParagraphElement[] = [];
-
-  if (firstHeading) {
-    let node: Node | null = body.firstChild;
-    while (node && node !== firstHeading) {
-      if (node.nodeType === Node.ELEMENT_NODE && (node as Element).tagName === 'P') {
-        preHeadingParagraphs.push(node as HTMLParagraphElement);
-      }
-      node = node.nextSibling;
-    }
-  } else {
-    preHeadingParagraphs.push(...Array.from(body.querySelectorAll(':scope > p')) as HTMLParagraphElement[]);
-  }
-
-  preHeadingParagraphs.forEach((p) => {
-    const text = p.textContent?.trim() || '';
-
-    // 目录标题
-    if (/^目\s*录$/.test(text)) {
-      p.classList.add('toc-heading');
-      p.setAttribute('style', 'text-align:center;text-indent:0;');
-      return;
-    }
-
-    // 目录条目
-    const tocLink = p.querySelector('a[href^="#_Toc"]');
-    if (tocLink && p.children.length === 1 && tocLink.parentElement === p) {
-      const linkText = tocLink.textContent || '';
-      const parts = linkText.split('\t');
-      if (parts.length >= 2) {
-        const title = parts.slice(0, -1).join('\t').trim();
-        const page = parts[parts.length - 1].trim();
-        tocLink.innerHTML = `<span class="toc-title">${escapeHtml(title)}</span><span class="toc-dots"></span><span class="toc-page">${escapeHtml(page)}</span>`;
-      }
-      p.classList.add('toc-entry');
-      return;
-    }
-
-    // 招标编号 右对齐
-    if (/招标编号/.test(text)) {
-      p.classList.add('cover-bid-no');
-      p.style.setProperty('text-align', 'right', 'important');
-      p.style.setProperty('text-indent', '0', 'important');
-      p.style.setProperty('margin-top', '60px', 'important');
-      return;
-    }
-
-    // 公司名称（封面大字）
-    if (/国家电力投资集团有限公司/.test(text)) {
-      p.setAttribute('style', 'text-align:center;text-indent:0;margin-top:120px;');
-      const strong = p.querySelector('strong, b');
-      if (strong) {
-        strong.outerHTML = `<span style="font-size:34.7px;font-weight:700;font-family:SimHei,黑体,sans-serif;">${strong.innerHTML}</span>`;
-      }
-      return;
-    }
-
-    // 文档名称（封面大字）
-    if (/设备采购招标文件范本/.test(text)) {
-      p.setAttribute('style', 'text-align:center;text-indent:0;');
-      const strong = p.querySelector('strong, b');
-      if (strong) {
-        strong.outerHTML = `<span style="font-size:34.7px;font-weight:700;font-family:SimHei,黑体,sans-serif;">${strong.innerHTML}</span>`;
-      }
-      return;
-    }
-
-    // 版本说明
-    if (/基础类.*年版/.test(text)) {
-      p.setAttribute('style', 'text-align:center;text-indent:0;margin-bottom:80px;');
-      const strong = p.querySelector('strong, b');
-      if (strong) {
-        strong.outerHTML = `<span style="font-size:24px;font-weight:700;font-family:SimHei,黑体,sans-serif;">${strong.innerHTML}</span>`;
-      }
-      return;
-    }
-
-    // 日期（封面底部）
-    if (/20\s*年\s*月|20__年__月/.test(text)) {
-      p.innerHTML = '<span style="display:inline-block;border-bottom:1px solid #000;padding:0 48px;line-height:1.4;">20&nbsp;&nbsp;&nbsp;&nbsp;年&nbsp;&nbsp;&nbsp;&nbsp;月</span>';
-      p.setAttribute('style', 'text-align:center;text-indent:0;margin-top:80px;');
-      return;
-    }
-
-    // 使用说明：只保留居中，不修改字号
-    if (/使用说明/.test(text)) {
-      p.classList.add('usage-title');
-      p.setAttribute('style', 'text-align:center;text-indent:0;');
-      return;
-    }
-
-    // 封面/使用说明等短标题段落：只包含格式标签且无普通文本节点
-    const onlyFormatting = Array.from(p.childNodes).every((n) => {
-      if (n.nodeType === Node.TEXT_NODE) return !n.textContent?.trim();
-      if (n.nodeType === Node.ELEMENT_NODE) {
-        const tag = (n as Element).tagName.toLowerCase();
-        return ['strong', 'b', 'a', 'img', 'br', 'span', 'em', 'i', 'u'].includes(tag);
-      }
-      return false;
-    });
-    if (onlyFormatting && text.length > 0 && text.length <= 60 && !/使用说明/.test(text)) {
-      p.classList.add('cover-text');
-      p.setAttribute('style', 'text-align:center;text-indent:0;');
-    }
-  });
-
-  // 封面图片统一处理：设置 width 属性（Tiptap Image 扩展会保留）
-  const coverImg = body.querySelector('img[alt*="微信图片"]') as HTMLImageElement | null;
-  if (coverImg) {
-    coverImg.setAttribute('width', '180');
-    coverImg.removeAttribute('style');
-    const imgParent = coverImg.parentElement;
-    if (imgParent && imgParent.tagName === 'P') {
-      imgParent.setAttribute('style', 'text-align:center;text-indent:0;');
-    }
-  }
-
-  // 封面表格（第一个 heading 之前的 table）保留 table，但注入虚线边框样式
-  const coverTable = firstHeading
-    ? (Array.from(body.children).find((el) => el.tagName === 'TABLE' && firstHeading.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING) as HTMLTableElement | undefined)
-    : body.querySelector('table') || undefined;
-  if (coverTable) {
-    coverTable.classList.add('cover-table', 'screen-only-border');
-    coverTable.querySelectorAll('td, th').forEach((cell) => {
-      cell.setAttribute('style', 'padding:8px 0;text-align:center;vertical-align:middle;');
-    });
-  }
-
-  // 使用说明前插入分页符
-  const usageTitle = body.querySelector('p.usage-title');
-  if (usageTitle) {
-    body.insertBefore(createPageBreak(doc), usageTitle);
-  }
-
-  // 在目录标题前插入分页符（如果前面还有内容）
-  const tocHeading = body.querySelector('p.toc-heading');
-  if (tocHeading && tocHeading.previousElementSibling) {
-    body.insertBefore(createPageBreak(doc), tocHeading);
-  }
-
-  // 在每个 h1 前面插入分页符（如果不是第一个子元素）
-  const h1s = Array.from(body.querySelectorAll('h1'));
-  h1s.forEach((h1, index) => {
-    if (index === 0 && !h1.previousElementSibling) return;
-    body.insertBefore(createPageBreak(doc), h1);
-  });
-
-  return body.innerHTML;
-}
-
-function sanitizeExportBodyHtml(html: string): string {
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(`<div id="export-root">${html}</div>`, 'text/html');
-  const root = doc.getElementById('export-root');
-  if (!root) {
-    return html;
-  }
-
-  const normalizeHighlightBlock = (block: HTMLElement) => {
-    block.removeAttribute('data-oo-highlight-block');
-    block.style.removeProperty('background');
-    block.style.removeProperty('background-color');
-    block.style.removeProperty('border');
-    block.style.removeProperty('border-left');
-    block.style.removeProperty('padding');
-    block.style.removeProperty('margin');
-    block.querySelectorAll<HTMLElement>('*').forEach((el) => {
-      el.style.removeProperty('background');
-      el.style.removeProperty('background-color');
-      el.style.removeProperty('border');
-      el.style.removeProperty('border-left');
-      el.style.removeProperty('color');
-    });
-  };
-
-  // 新版：显式标记的资源高亮块
-  root.querySelectorAll<HTMLElement>('[data-oo-highlight-block="1"]').forEach((block) => {
-    normalizeHighlightBlock(block);
-  });
-
-  // 兼容旧版：按内联样式特征识别高亮块并去样式
-  root.querySelectorAll<HTMLElement>('div[style]').forEach((divEl) => {
-    const styleText = (divEl.getAttribute('style') ?? '').toLowerCase().replace(/\s+/g, '');
-    const looksLikeHighlightBlock =
-      styleText.includes('background:#fff8db') ||
-      styleText.includes('background-color:#fff8db') ||
-      styleText.includes('border-left:4pxsolid#f59e0b') ||
-      styleText.includes('border:1pxsolid#f6d88f');
-    if (looksLikeHighlightBlock) {
-      normalizeHighlightBlock(divEl);
-    }
-  });
-
-  const separatorLineRe = /^\s*[─—-]{3,}\s*$/;
-  // 去掉单独成段的分隔线（──── / ----）
-  root.querySelectorAll<HTMLElement>('p, div, li').forEach((el) => {
-    const text = (el.textContent ?? '').replace(/\u00a0/g, ' ').trim();
-    if (separatorLineRe.test(text)) {
-      el.remove();
-    }
-  });
-
-  // 去掉段内通过 <br> 插入的分隔线行
-  root.querySelectorAll<HTMLElement>('p, div').forEach((el) => {
-    const html = el.innerHTML;
-    if (!html || !/─|—|-/.test(html)) {
-      return;
-    }
-    const cleaned = html
-      .replace(/(?:^|<br\s*\/?>)\s*[─—-]{3,}\s*(?=<br\s*\/?>|$)/gi, '')
-      .replace(/(<br\s*\/?>\s*){2,}/gi, '<br/>')
-      .replace(/^(<br\s*\/?>)+/gi, '')
-      .replace(/(<br\s*\/?>)+$/gi, '');
-    if (cleaned !== html) {
-      el.innerHTML = cleaned;
-    }
-  });
-
-  root.querySelectorAll('table').forEach((table) => {
-    const tableEl = table as HTMLTableElement;
-    tableEl.removeAttribute('width');
-    tableEl.style.removeProperty('width');
-    tableEl.style.width = '100%';
-    tableEl.style.maxWidth = '100%';
-    tableEl.style.tableLayout = 'fixed';
-  });
-
-  root.querySelectorAll('td, th').forEach((cell) => {
-    const cellEl = cell as HTMLElement;
-    cellEl.removeAttribute('width');
-    cellEl.style.removeProperty('width');
-    cellEl.style.maxWidth = '0';
-    cellEl.style.wordBreak = 'break-word';
-    cellEl.style.whiteSpace = 'normal';
-  });
-
-  root.querySelectorAll('img').forEach((img) => {
-    const imgEl = img as HTMLImageElement;
-    imgEl.removeAttribute('width');
-    imgEl.removeAttribute('height');
-    imgEl.style.maxWidth = '100%';
-    imgEl.style.height = 'auto';
-  });
-
-  return root.innerHTML;
-}
 
 function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -422,46 +169,6 @@ function assignTemplateId(sections: TemplateSection[], templateId: string): Temp
   }));
 }
 
-function flattenLeafSections(sections: TemplateSection[]): TemplateSection[] {
-  const leaves: TemplateSection[] = [];
-  const walk = (items: TemplateSection[]) => {
-    items.forEach((sec) => {
-      if (sec.children?.length) {
-        walk(sec.children);
-      } else {
-        leaves.push(sec);
-      }
-    });
-  };
-  walk(sections);
-  return leaves;
-}
-
-function sectionHasRequiredContent(section: TemplateSection): boolean {
-  const raw = section.content ?? '';
-  if (!raw.trim()) {
-    return false;
-  }
-  if (/<table[\s>]/i.test(raw)) {
-    return true;
-  }
-  const plain = raw
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return plain.length > 0;
-}
-
-function calcTemplateEditProgress(template: Template): number {
-  const leafSections = flattenLeafSections(template.sections);
-  if (leafSections.length === 0) {
-    return 0;
-  }
-  const doneCount = leafSections.filter(sectionHasRequiredContent).length;
-  return Math.round((doneCount / leafSections.length) * 100);
-}
-
 /** 按框架树生成范本章节（含子节），与资源「绑定到某范本某节」一致 */
 function buildSections(frameworkId: string, progress: number): TemplateSection[] {
   if (frameworkId === FW_MANUAL) {
@@ -506,9 +213,16 @@ function makeTpl(
   createdAt: string,
   updatedAt: string,
   description?: string,
+  options?: {
+    sections?: TemplateSection[];
+    generalTemplateId?: string;
+    generalTemplateSyncedVersion?: number;
+  },
 ): Template {
   const path = lotLevelId ? getLotLevelPath(lotLevelId) : null;
-  const sections = buildSections(frameworkId, editProgress);
+  const sections = options?.sections?.length
+    ? assignTemplateId(options.sections, id)
+    : assignTemplateId(buildSections(frameworkId, editProgress), id);
   return {
     id,
     name,
@@ -521,8 +235,10 @@ function makeTpl(
     editProgress,
     createdAt,
     updatedAt,
-    sections: assignTemplateId(sections, id),
+    sections,
     variables: [],
+    generalTemplateId: options?.generalTemplateId,
+    generalTemplateSyncedVersion: options?.generalTemplateSyncedVersion,
   };
 }
 
@@ -539,22 +255,6 @@ const initialTemplates: Template[] = [
   makeTpl('tpl-8', '陆上风电EPC工程总承包范本', seedLotIds.kxx, 'fw-default', 'V1.0', 'published', 100, '2023-12-01', '2024-01-05', '陆上风电EPC总承包招标标准范本'),
 ];
 
-// ─── AI 搜索评分 ──────────────────────────────────────────────────────────────
-
-function scoreTemplate(query: string, t: Template): number {
-  const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  const haystack = [
-    t.name,
-    t.lotLevelName,
-    t.businessSectorName,
-    t.businessTypeDisplayName,
-    t.energyType,
-    t.description ?? '',
-    ...t.sections.map(s => s.title),
-  ].join(' ').toLowerCase();
-  return tokens.reduce((n, tok) => n + (haystack.includes(tok) ? 1 : 0), 0);
-}
-
 // ─── 状态徽章 ─────────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: Template['status'] }) {
@@ -564,6 +264,19 @@ function StatusBadge({ status }: { status: Template['status'] }) {
   };
   const { cls, label } = map[status];
   return <span className={`px-2 py-0.5 rounded text-xs font-medium ${cls}`}>{label}</span>;
+}
+
+function TemplateSourceBadge({ template }: { template: Template }) {
+  const referenced = templateReferencesGeneralTemplate(template);
+  return (
+    <span
+      className={`px-2 py-0.5 rounded text-xs font-medium ${
+        referenced ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'
+      }`}
+    >
+      {referenced ? '引用' : '自定义'}
+    </span>
+  );
 }
 
 // ─── 主页面 ───────────────────────────────────────────────────────────────────
@@ -588,7 +301,7 @@ export default function TemplatePage() {
     return () => setImmersive(false);
   }, [editingTemplate, setImmersive]);
 
-  // 标段筛选
+  // 品类筛选
   const [selectedBusinessSectorId, setSelectedBusinessSectorId] = useState('');
   const [selectedBusinessTypeId, setSelectedBusinessTypeId] = useState('');
   const [selectedLotLevelId, setSelectedLotLevelId] = useState('');
@@ -601,17 +314,7 @@ export default function TemplatePage() {
   const [aiQuery, setAiQuery] = useState('');
   const [aiSearching, setAiSearching] = useState(false);
   const [aiMatchedIds, setAiMatchedIds] = useState<Set<string> | null>(null);
-  type AiMatchGroup = {
-    lotLevelId: string;
-    lotLevelName: string;
-    businessTypeDisplayName: string;
-    businessSectorName: string;
-    businessSectorId: string;
-    businessTypeId: string;
-    templates: Template[];
-    keywords: string[];
-  };
-  const [aiMatchGroups, setAiMatchGroups] = useState<AiMatchGroup[] | null>(null);
+  const [aiMatchGroups, setAiMatchGroups] = useState<TemplateListAiMatchGroup[] | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
@@ -624,13 +327,33 @@ export default function TemplatePage() {
   const [templateLogId, setTemplateLogId] = useState<string | null>(null);
   const [systemNotice, setSystemNotice] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showImportMetaModal, setShowImportMetaModal] = useState(false);
-  const [showImportModal, setShowImportModal] = useState(false);
-  const [importMeta, setImportMeta] = useState<TemplateLotMetaValue>(emptyTemplateLotMeta);
 
   const [createMeta, setCreateMeta] = useState<TemplateLotMetaValue>(emptyTemplateLotMeta);
+  const [createGeneralTemplateId, setCreateGeneralTemplateId] = useState('');
 
-  /** 一键复制：先填标段 / 名称与描述，再生成副本 */
+  const createSelectedLotId = createMeta.lotLevelIds[0] || createMeta.lotLevelId;
+
+  const compatibleGeneralTemplates = useMemo(
+    () => listGeneralTemplates().filter(generalTemplateHasParsedContent),
+    [],
+  );
+
+  useEffect(() => {
+    if (!createGeneralTemplateId) return;
+    if (!compatibleGeneralTemplates.some((gt) => gt.id === createGeneralTemplateId)) {
+      setCreateGeneralTemplateId('');
+    }
+  }, [compatibleGeneralTemplates, createGeneralTemplateId]);
+
+  const createReady = useMemo(
+    () =>
+      Boolean(createSelectedLotId)
+      && createMeta.name.trim().length > 0
+      && Boolean(createGeneralTemplateId),
+    [createSelectedLotId, createMeta.name, createGeneralTemplateId],
+  );
+
+  /** 一键复制：先填品类 / 名称与描述，再生成副本 */
   const [duplicateSourceId, setDuplicateSourceId] = useState<string | null>(null);
   const [dupCascade, setDupCascade] = useState<LotCascadeValue>(emptyLotCascade);
   const [dupName, setDupName] = useState('');
@@ -643,15 +366,6 @@ export default function TemplatePage() {
   const [editMetaName, setEditMetaName] = useState('');
   const [editMetaDesc, setEditMetaDesc] = useState('');
   const [editMetaVersion, setEditMetaVersion] = useState('');
-
-  const filterBusinessTypes = classificationStore.businessTypes.filter(
-    (bt) => bt.businessSectorId === selectedBusinessSectorId,
-  );
-  const filterLots = classificationStore.lotLevels.filter((l) => {
-    if (selectedBusinessTypeId && l.businessTypeId !== selectedBusinessTypeId) return false;
-    if (selectedBusinessSectorId && l.businessSectorId !== selectedBusinessSectorId) return false;
-    return true;
-  });
 
   // 过滤后的范本列表
   const displayedTemplates = useMemo(() => {
@@ -738,32 +452,10 @@ export default function TemplatePage() {
       await globalLoading.wrap(async () => {
         await new Promise(r => setTimeout(r, 800));
         const queryTokens = aiQuery.trim().toLowerCase().split(/\s+/).filter(Boolean);
-        const matchedTemplates = templates.filter(t => scoreTemplate(aiQuery, t) > 0);
-        const matched = new Set(matchedTemplates.map(t => t.id));
+        const matchedTemplates = templates.filter((t) => scoreTemplateItem(aiQuery, t) > 0);
+        const matched = new Set(matchedTemplates.map((t) => t.id));
         setAiMatchedIds(matched);
-        const groupMap = new Map<string, AiMatchGroup>();
-        for (const t of matchedTemplates) {
-          const key = t.lotLevelId || 'uncategorized';
-          if (!groupMap.has(key)) {
-            groupMap.set(key, {
-              lotLevelId: t.lotLevelId || '',
-              lotLevelName: t.lotLevelName || '未分类',
-              businessTypeDisplayName: t.businessTypeDisplayName || '',
-              businessSectorName: t.businessSectorName || '',
-              businessSectorId: t.businessSectorId || '',
-              businessTypeId: t.businessTypeId || '',
-              templates: [],
-              keywords: [],
-            });
-          }
-          groupMap.get(key)!.templates.push(t);
-        }
-        for (const g of groupMap.values()) {
-          const text = g.templates.map(t => [t.name, t.description].join(' ')).join(' ').toLowerCase();
-          g.keywords = queryTokens.filter(tok => text.includes(tok)).slice(0, 4);
-          if (g.keywords.length === 0) g.keywords = queryTokens.slice(0, 3);
-        }
-        setAiMatchGroups(Array.from(groupMap.values()).sort((a, b) => b.templates.length - a.templates.length));
+        setAiMatchGroups(buildAiMatchGroups(matchedTemplates, lotMetaFromTemplate, queryTokens));
       }, '正在加载中…');
     } finally {
       setAiSearching(false);
@@ -772,7 +464,7 @@ export default function TemplatePage() {
 
   const clearAiSearch = () => { setAiQuery(''); setAiMatchedIds(null); setAiMatchGroups(null); };
 
-  const applyAiMatchGroup = (group: AiMatchGroup) => {
+  const applyAiMatchGroup = (group: TemplateListAiMatchGroup) => {
     setSelectedBusinessSectorId(group.businessSectorId);
     setSelectedBusinessTypeId(group.businessTypeId);
     setSelectedLotLevelId(group.lotLevelId);
@@ -836,7 +528,7 @@ export default function TemplatePage() {
       }).join('');
     };
 
-    const bodyHtml = sanitizeExportBodyHtml(buildExportHTML(template.sections));
+    const bodyHtml = buildExportHTML(template.sections);
     const fullHtml = `
       <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/1999/xhtml'>
       <head>
@@ -918,6 +610,13 @@ export default function TemplatePage() {
   const handleSaveTemplate = (updated: Template) => {
     const computedProgress = calcTemplateEditProgress(updated);
     const isImported = updated.id.startsWith('import-');
+    const clearGeneralTemplateSync = (prevGtId: string, templateId: string) => {
+      const gt = listGeneralTemplates().find((g) => g.id === prevGtId);
+      if (!gt?.templateSyncedVersion?.[templateId]) return;
+      const synced = { ...gt.templateSyncedVersion };
+      delete synced[templateId];
+      patchGeneralTemplateManifest(prevGtId, { templateSyncedVersion: synced });
+    };
     if (isImported) {
       const newId = `tpl-${Date.now()}`;
       const newTpl: Template = {
@@ -950,7 +649,11 @@ export default function TemplatePage() {
       });
     } else {
       setTemplates(prev => {
+        const prevTpl = prev.find((t) => t.id === updated.id);
         const saved = { ...updated, editProgress: computedProgress };
+        if (prevTpl?.generalTemplateId && !saved.generalTemplateId) {
+          clearGeneralTemplateSync(prevTpl.generalTemplateId, saved.id);
+        }
         const next = prev.map(t => t.id === updated.id ? saved : t);
         setMockTemplates(next);
         syncTemplateFragmentBindingsFromSections(saved, getTemplateResourceInserts(saved.id));
@@ -960,7 +663,9 @@ export default function TemplatePage() {
           action: 'update',
           entityId: updated.id,
           label: updated.name,
-          detail: '编辑器保存',
+          detail: prevTpl?.generalTemplateId && !saved.generalTemplateId
+            ? '保存为自定义模版，已解除通用模版关联'
+            : '保存为自定义模版',
           actor: getMockActor(),
         });
         return next;
@@ -978,22 +683,6 @@ export default function TemplatePage() {
     setEditingTemplateFile(null);
   };
 
-  const createVersionPlaceholder = useMemo(() => {
-    if (createMeta.lotLevelIds.length === 0) return 'V1.0';
-    if (createMeta.lotLevelIds.length === 1) {
-      return suggestVersionForLot(templates, createMeta.lotLevelIds[0]);
-    }
-    return '留空则各标段分别递增版本号';
-  }, [createMeta.lotLevelIds, templates]);
-
-  const importVersionPlaceholder = useMemo(() => {
-    if (importMeta.lotLevelIds.length === 0) return 'V1.0';
-    if (importMeta.lotLevelIds.length === 1) {
-      return suggestVersionForLot(templates, importMeta.lotLevelIds[0]);
-    }
-    return '留空则各标段分别递增版本号';
-  }, [importMeta.lotLevelIds, templates]);
-
   const suggestedDupVersion = useMemo(() => {
     if (!dupCascade.lotLevelId) return 'V1.0';
     const n = templates.filter(
@@ -1002,47 +691,90 @@ export default function TemplatePage() {
     return `V${n + 1}.0`;
   }, [dupCascade.lotLevelId, templates]);
 
+  const uploadComposedTemplateDocx = async (tpl: Template) => {
+    const fragments = getMockTextFragments();
+    const gtParsed = tpl.generalTemplateId
+      ? getGeneralTemplateParsedContent(tpl.generalTemplateId)
+      : null;
+    const bodyHtml = buildSectionsHtmlWithResources(tpl.sections, tpl, fragments, 0, gtParsed);
+    const docBlob = await asBlob(
+      `<html><body>${bodyHtml || `<h1>${tpl.name}</h1>`}</body></html>`,
+    ) as Blob;
+    const content = await blobToBase64(docBlob);
+    await fetch(`/api/documents/${encodeURIComponent(tpl.id)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    });
+  };
+
   const handleCreate = () => {
-    const lotIds = createMeta.lotLevelIds;
-    if (lotIds.length === 0 || !createMeta.name.trim()) return;
+    const lotLevelId = createSelectedLotId;
+    if (!lotLevelId || !createGeneralTemplateId) return;
+    const name = createMeta.name.trim();
+    if (!name) return;
     const now = new Date().toISOString().split('T')[0];
     const baseTs = Date.now();
-    const newTemplates = lotIds.map((lotLevelId, index) =>
-      makeTpl(
-        `tpl-${baseTs}-${index}`,
-        createMeta.name.trim(),
-        lotLevelId,
-        FW_MANUAL,
-        createMeta.version.trim() || suggestVersionForLot(templates, lotLevelId),
-        'draft',
-        0,
-        now,
-        now,
-        createMeta.description,
-      ),
+    const description = createMeta.description.trim() || undefined;
+    const tplId = `tpl-${baseTs}`;
+    const gtParsed = getGeneralTemplateParsedContent(createGeneralTemplateId);
+    if (!gtParsed) {
+      setSystemNotice('所选通用模版尚未完成解析，请先在「通用模版管理」上传并等待解析完成。');
+      return;
+    }
+    const fragments = getMockTextFragments();
+    const composedSections = composeReferencedTemplateFromGeneralTemplate(
+      tplId,
+      lotLevelId,
+      createGeneralTemplateId,
+      gtParsed,
+      fragments,
     );
+    const tplRaw = makeTpl(
+      tplId,
+      name,
+      lotLevelId,
+      FW_MANUAL,
+      suggestVersionForLot(templates, lotLevelId),
+      'draft',
+      0,
+      now,
+      now,
+      description,
+      {
+        sections: composedSections,
+        generalTemplateId: createGeneralTemplateId,
+        generalTemplateSyncedVersion: gtParsed.contentVersion,
+      },
+    );
+    const tpl = { ...tplRaw, editProgress: calcTemplateEditProgress(tplRaw) };
     setTemplates((prev) => {
-      const next = [...prev, ...newTemplates];
+      const next = [...prev, tpl];
       setMockTemplates(next);
-      for (const tpl of newTemplates) {
-        appendDataAudit({
-          scope: 'template',
-          action: 'create',
-          entityId: tpl.id,
-          label: tpl.name,
-          detail: tpl.lotLevelName ? `标段：${tpl.lotLevelName}` : undefined,
-          actor: getMockActor(),
-        });
-      }
+      const gt = listGeneralTemplates().find((g) => g.id === createGeneralTemplateId);
+      patchGeneralTemplateManifest(createGeneralTemplateId, {
+        templateSyncedVersion: {
+          ...(gt?.templateSyncedVersion ?? {}),
+          [tplId]: gtParsed.contentVersion,
+        },
+      });
+      appendDataAudit({
+        scope: 'template',
+        action: 'create',
+        entityId: tpl.id,
+        label: tpl.name,
+        detail: `拼接通用模版「${gt?.name ?? createGeneralTemplateId}」生成引用型范本`,
+        actor: getMockActor(),
+      });
       return next;
+    });
+    void uploadComposedTemplateDocx(tpl).catch((err: unknown) => {
+      console.warn('[TemplatePage] 新建范本后上传 docx 失败', err);
     });
     setShowCreateModal(false);
     setCreateMeta(emptyTemplateLotMeta());
-    setSystemNotice(
-      newTemplates.length > 1
-        ? `已生成 ${newTemplates.length} 个范本`
-        : '已生成范本',
-    );
+    setCreateGeneralTemplateId('');
+    setSystemNotice('已按所选品类与通用模版拼接生成范本；打开编辑器可预览，需固化修改时请「保存为自定义模版」。');
   };
 
   const openDuplicateModal = (t: Template) => {
@@ -1126,7 +858,7 @@ export default function TemplatePage() {
       version: dupVersion.trim() || undefined,
     });
     if (!created) {
-      setSystemNotice('复制失败：未找到源范本或标段无效，请重新选择标段。');
+      setSystemNotice('复制失败：未找到源范本或品类无效，请重新选择品类。');
       closeDuplicateModal();
       return;
     }
@@ -1134,15 +866,6 @@ export default function TemplatePage() {
     closeDuplicateModal();
     setSystemNotice(`已生成副本「${created.name}」，已保存为草稿，可在列表中打开编辑。`);
   };
-
-  const breadcrumb = [
-    selectedBusinessSectorId &&
-      classificationStore.businessSectors.find((s) => s.id === selectedBusinessSectorId)?.name,
-    selectedBusinessTypeId &&
-      classificationStore.businessTypes.find((bt) => bt.id === selectedBusinessTypeId)?.displayName,
-    selectedLotLevelId &&
-      classificationStore.lotLevels.find((l) => l.id === selectedLotLevelId)?.name,
-  ].filter(Boolean) as string[];
 
   const templateStatusConfirmName =
     templateActionConfirm !== null
@@ -1174,300 +897,64 @@ export default function TemplatePage() {
       {/* 页面说明（标题由 MainLayout 顶栏展示，此处不重复） */}
       <p className={systemUi.pageDesc}>基于框架生成范本，编辑内容并预留变量</p>
 
-      {/* AI 搜索框 */}
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
-        <div className="relative">
-          <Sparkles className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-blue-400" />
-          <input
-            type="text"
-            placeholder="用自然语言描述您需要的范本，例如：适合储能EPC项目的资格要求条款..."
-            value={aiQuery}
-            onChange={e => { setAiQuery(e.target.value); if (!e.target.value) setAiMatchedIds(null); }}
-            onKeyDown={e => e.key === 'Enter' && handleAiSearch()}
-            className="w-full pl-10 pr-28 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-          />
-          {aiSearching && (
-            <Loader2 className="absolute right-20 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-blue-500" />
-          )}
-          {aiQuery && !aiSearching && (
-            <button onClick={clearAiSearch} className="absolute right-20 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-              <X className="w-4 h-4" />
-            </button>
-          )}
-          <button
-            onClick={handleAiSearch}
-            disabled={aiSearching}
-            className="absolute right-2 top-1/2 -translate-y-1/2 px-3 py-1.5 bg-blue-600 text-white text-xs rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50"
-          >
-            AI 搜索
-          </button>
-        </div>
-        {/* AI 筛选结果面板 */}
-        {aiMatchGroups !== null && aiMatchGroups.length > 0 && (
-          <div className="mt-3">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full">
-                  AI 推荐
-                </span>
-                <span className="text-xs text-slate-500">
-                  匹配到 <b className="text-slate-700">{aiMatchGroups.length}</b> 个标段 · <b className="text-slate-700">{aiMatchedIds?.size ?? 0}</b> 个范本
-                </span>
-              </div>
-              <button onClick={clearAiSearch} className="text-xs text-slate-400 hover:text-slate-600 flex items-center gap-1">
-                <X className="w-3 h-3" /> 清除
-              </button>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {aiMatchGroups.map((group) => (
-                <button
-                  key={group.lotLevelId}
-                  onClick={() => applyAiMatchGroup(group)}
-                  className={`group text-left relative border rounded-lg px-3 py-2.5 transition-all hover:shadow-md hover:-translate-y-0.5 ${
-                    selectedLotLevelId === group.lotLevelId
-                      ? 'border-blue-400 bg-blue-50/60 ring-1 ring-blue-300'
-                      : 'border-slate-200 bg-white hover:border-blue-300'
-                  }`}
-                  style={{ minWidth: 200, maxWidth: 280 }}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-slate-800 group-hover:text-blue-700 truncate">
-                        {group.lotLevelName}
-                      </p>
-                      <p className="text-[11px] text-slate-400 mt-0.5 truncate">
-                        {group.businessSectorName} › {group.businessTypeDisplayName}
-                      </p>
-                    </div>
-                    <span className="shrink-0 text-[11px] font-medium text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
-                      {group.templates.length} 个
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap gap-1 mt-2">
-                    {group.keywords.map((kw, i) => (
-                      <span
-                        key={i}
-                        className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 border border-slate-200"
-                      >
-                        {kw}
-                      </span>
-                    ))}
-                  </div>
-                  {selectedLotLevelId === group.lotLevelId && (
-                    <div className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center">
-                      <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                      </svg>
-                    </div>
-                  )}
-                </button>
-              ))}
-            </div>
-            <p className="text-[11px] text-slate-400 mt-2">点击卡片可快速定位到对应标段筛选</p>
-          </div>
-        )}
-      </div>
+      <TemplateAiSearchPanel
+        placeholder="用自然语言描述您需要的范本，例如：适合储能EPC项目的资格要求条款..."
+        itemLabel="范本"
+        query={aiQuery}
+        searching={aiSearching}
+        matchGroups={aiMatchGroups}
+        matchedCount={aiMatchedIds?.size ?? 0}
+        selectedLotLevelId={selectedLotLevelId}
+        onQueryChange={setAiQuery}
+        onSearch={handleAiSearch}
+        onClear={clearAiSearch}
+        onApplyGroup={applyAiMatchGroup}
+      />
 
-      {/* 标段筛选面板 */}
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-        <button
-          onClick={() => setFilterCollapsed(v => !v)}
-          className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
-        >
-          <span className="flex items-center gap-2">
-            <Filter className="w-4 h-4 text-slate-400" />
-            标段筛选
-            {breadcrumb.length > 0 && (
-              <span className="text-xs text-blue-600 font-normal">{breadcrumb.join(' › ')}</span>
-            )}
-          </span>
-          {filterCollapsed ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronUp className="w-4 h-4 text-slate-400" />}
-        </button>
+      <TemplateCategoryFilterPanel
+        store={classificationStore}
+        value={{
+          businessSectorId: selectedBusinessSectorId,
+          businessTypeId: selectedBusinessTypeId,
+          lotLevelId: selectedLotLevelId,
+        }}
+        onChange={(next) => {
+          setSelectedBusinessSectorId(next.businessSectorId);
+          setSelectedBusinessTypeId(next.businessTypeId);
+          setSelectedLotLevelId(next.lotLevelId);
+        }}
+        collapsed={filterCollapsed}
+        onCollapsedChange={setFilterCollapsed}
+      />
 
-        {!filterCollapsed && (
-          <div className="px-4 pb-4 border-t border-slate-100">
-            <div className="grid grid-cols-3 gap-3 mt-3">
-              <div className="border border-slate-200 rounded-lg overflow-hidden">
-                <div className="px-3 py-2 bg-slate-50 text-xs font-medium text-slate-500 border-b border-slate-200">业务板块</div>
-                <div className="max-h-44 overflow-y-auto">
-                  {classificationStore.businessSectors.map((s) => (
-                    <button
-                      key={s.id}
-                      type="button"
-                      onClick={() => {
-                        const on = selectedBusinessSectorId === s.id;
-                        setSelectedBusinessSectorId(on ? '' : s.id);
-                        setSelectedBusinessTypeId('');
-                        setSelectedLotLevelId('');
-                      }}
-                      className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between transition-colors ${
-                        selectedBusinessSectorId === s.id
-                          ? 'bg-blue-50 text-blue-700 font-medium'
-                          : 'hover:bg-slate-50 text-slate-700'
-                      }`}
-                    >
-                      {s.name}
-                      {selectedBusinessSectorId === s.id && <ChevronRight className="w-3.5 h-3.5" />}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="border border-slate-200 rounded-lg overflow-hidden">
-                <div className="px-3 py-2 bg-slate-50 text-xs font-medium text-slate-500 border-b border-slate-200">能源/业务类型</div>
-                <div className="max-h-44 overflow-y-auto">
-                  {!selectedBusinessSectorId ? (
-                    <div className="px-3 py-4 text-xs text-slate-400 text-center">请先选择业务板块</div>
-                  ) : (
-                    filterBusinessTypes.map((bt) => (
-                      <button
-                        key={bt.id}
-                        type="button"
-                        onClick={() => {
-                          const on = selectedBusinessTypeId === bt.id;
-                          setSelectedBusinessTypeId(on ? '' : bt.id);
-                          setSelectedLotLevelId('');
-                        }}
-                        className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between transition-colors ${
-                          selectedBusinessTypeId === bt.id
-                            ? 'bg-blue-50 text-blue-700 font-medium'
-                            : 'hover:bg-slate-50 text-slate-700'
-                        }`}
-                      >
-                        {bt.displayName}
-                        {selectedBusinessTypeId === bt.id && <ChevronRight className="w-3.5 h-3.5" />}
-                      </button>
-                    ))
-                  )}
-                </div>
-              </div>
-              <div className="border border-slate-200 rounded-lg overflow-hidden">
-                <div className="px-3 py-2 bg-slate-50 text-xs font-medium text-slate-500 border-b border-slate-200">标段级别</div>
-                <div className="max-h-44 overflow-y-auto">
-                  {!selectedBusinessTypeId ? (
-                    <div className="px-3 py-4 text-xs text-slate-400 text-center">请先选择业务类型</div>
-                  ) : (
-                    filterLots.map((lot) => (
-                      <button
-                        key={lot.id}
-                        type="button"
-                        onClick={() =>
-                          setSelectedLotLevelId(selectedLotLevelId === lot.id ? '' : lot.id)
-                        }
-                        className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between transition-colors ${
-                          selectedLotLevelId === lot.id
-                            ? 'bg-blue-50 text-blue-700 font-medium'
-                            : 'hover:bg-slate-50 text-slate-700'
-                        }`}
-                      >
-                        <span className="truncate">{lot.name}</span>
-                        {selectedLotLevelId === lot.id && (
-                          <ChevronRight className="w-3.5 h-3.5 shrink-0" />
-                        )}
-                      </button>
-                    ))
-                  )}
-                </div>
-              </div>
-            </div>
-
-          </div>
-        )}
-      </div>
-
-      {/* 时间查询模块（独立） */}
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-        <button
-          onClick={() => setTimeFilterCollapsed(v => !v)}
-          className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
-        >
-          <span className="flex items-center gap-2">
-            <CalendarDays className="w-4 h-4 text-slate-400" />
-            更新时间查询
-          </span>
-          {timeFilterCollapsed ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronUp className="w-4 h-4 text-slate-400" />}
-        </button>
-        {!timeFilterCollapsed && (
-          <div className="border-t border-slate-100 px-4 py-4">
-            <div className="flex items-center justify-between">
-              <div className="text-sm font-medium text-slate-700">按更新时间筛选</div>
-              {(startDate || endDate) && (
-                <button
-                  onClick={() => { setStartDate(''); setEndDate(''); }}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  清空条件
-                </button>
-              )}
-            </div>
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg border border-slate-200 bg-slate-50/60">
-                <span className="text-xs text-slate-500">开始日期</span>
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="px-2 py-1.5 border border-slate-200 rounded-md bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                />
-              </div>
-              <span className="text-slate-400 text-sm">至</span>
-              <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg border border-slate-200 bg-slate-50/60">
-                <span className="text-xs text-slate-500">结束日期</span>
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="px-2 py-1.5 border border-slate-200 rounded-md bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                />
-              </div>
-            </div>
-            <div className="mt-2 text-xs text-slate-400">
-              按范本更新时间进行区间过滤（包含起止日期）
-            </div>
-          </div>
-        )}
-      </div>
+      <TemplateUpdatedTimeFilterPanel
+        value={{ startDate, endDate }}
+        onChange={(next) => {
+          setStartDate(next.startDate);
+          setEndDate(next.endDate);
+        }}
+        collapsed={timeFilterCollapsed}
+        onCollapsedChange={setTimeFilterCollapsed}
+        hint="按范本更新时间进行区间过滤（包含起止日期）"
+      />
 
       {/* 工具栏 */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          {breadcrumb.length > 0 && (
-            <div className="flex items-center gap-1.5">
-              {breadcrumb.map((crumb, i) => (
-                <span key={i} className="flex items-center gap-1.5">
-                  {i > 0 && <span className="text-slate-300 text-xs">›</span>}
-                  <span className="px-2 py-0.5 bg-blue-50 text-blue-700 text-xs rounded-full">{crumb}</span>
-                </span>
-              ))}
-              <button
-                onClick={() => {
-                  setSelectedBusinessSectorId('');
-                  setSelectedBusinessTypeId('');
-                  setSelectedLotLevelId('');
-                }}
-                className="ml-1 text-slate-400 hover:text-slate-600"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          )}
-          {(startDate || endDate) && (
-            <span className="px-2 py-0.5 bg-amber-50 text-amber-700 text-xs rounded-full">
-              时间：{startDate || '不限'} ~ {endDate || '不限'}
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => {
-              setImportMeta(emptyTemplateLotMeta());
-              setShowImportMetaModal(true);
-            }}
-            className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 bg-white text-slate-700 text-sm rounded-lg hover:bg-slate-50 transition-colors"
-          >
-            <Upload className="w-4 h-4" />
-            导入范本
-          </button>
+      <div className="flex items-center gap-3">
+        <TemplateListActiveFilterTags
+          store={classificationStore}
+          categoryFilter={{
+            businessSectorId: selectedBusinessSectorId,
+            businessTypeId: selectedBusinessTypeId,
+            lotLevelId: selectedLotLevelId,
+          }}
+          timeFilter={{ startDate, endDate }}
+          onClearCategory={() => {
+            setSelectedBusinessSectorId('');
+            setSelectedBusinessTypeId('');
+            setSelectedLotLevelId('');
+          }}
+        />
+        <div className="flex items-center gap-2 ml-auto shrink-0">
           <button
             onClick={() => {
               setCreateMeta(emptyTemplateLotMeta());
@@ -1483,16 +970,16 @@ export default function TemplatePage() {
 
       {/* 范本表格 */}
       <div id="template-list-anchor" className={systemUi.card}>
-        <table className={systemUi.table}>
+        <table className={`${systemUi.table} table-fixed`}>
           <thead className="sticky top-0 z-10">
             <tr className={systemUi.tableHeadRow}>
-              <th className={`${systemUi.tableTh} w-[11rem]`}>范本名称</th>
-              <th className={systemUi.tableTh}>所属标段</th>
-              <th className={`${systemUi.tableTh} w-16`}>版本</th>
-              <th className={`${systemUi.tableTh} w-32`}>编辑进度</th>
-              <th className={`${systemUi.tableTh} w-24`}>状态</th>
-              <th className={`${systemUi.tableTh} w-24`}>更新时间</th>
-              <th className={`${systemUi.tableTh} w-36`}>操作</th>
+              <th className={`${systemUi.tableTh} w-[20%]`}>范本名称</th>
+              <th className={`${systemUi.tableTh} w-[18%]`}>所属品类</th>
+              <th className={`${systemUi.tableTh} w-[10%]`}>是否引用</th>
+              <th className={`${systemUi.tableTh} w-[12%]`}>编辑进度</th>
+              <th className={`${systemUi.tableTh} w-[9%]`}>状态</th>
+              <th className={`${systemUi.tableTh} w-[12%]`}>更新时间</th>
+              <th className={`${systemUi.tableTh} w-[19%] text-right`}>操作</th>
             </tr>
           </thead>
           <tbody>
@@ -1514,23 +1001,23 @@ export default function TemplatePage() {
                     }`}
                   >
                   <td className={systemUi.tableTd}>
-                    <div className={systemUi.tableCellName}>{t.name}</div>
+                    <div className="text-sm font-medium text-slate-900 truncate">{t.name}</div>
                     {t.description?.trim() && (
                       <SystemTooltip content={t.description} placement="top">
-                        <span className={`${systemUi.tableCellDesc} mt-0.5`}>
+                        <span className="block text-[11px] leading-tight text-slate-500 line-clamp-1 truncate cursor-default mt-0.5">
                           {previewTableText(t.description)}
                         </span>
                       </SystemTooltip>
                     )}
                   </td>
                   <td className={systemUi.tableTd}>
-                    <div className={systemUi.tableCellTitle}>{t.lotLevelName}</div>
-                    <div className={systemUi.tableCellSub}>
+                    <div className="text-sm font-medium text-slate-900 truncate">{t.lotLevelName}</div>
+                    <div className="text-xs text-slate-500 mt-0.5 truncate">
                       {t.businessSectorName} · {t.businessTypeDisplayName}
                     </div>
                   </td>
-                  <td className={systemUi.tableTd}>
-                    <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-xs font-mono">{t.version ?? 'V1.0'}</span>
+                  <td className={`${systemUi.tableTd} whitespace-nowrap`}>
+                    <TemplateSourceBadge template={t} />
                   </td>
                   <td className={systemUi.tableTd}>
                     <div className="flex items-center gap-2">
@@ -1545,8 +1032,8 @@ export default function TemplatePage() {
                   </td>
                   <td className={`${systemUi.tableTd} whitespace-nowrap`}><StatusBadge status={t.status} /></td>
                   <td className={`${systemUi.tableTdMuted} whitespace-nowrap tabular-nums`}>{t.updatedAt}</td>
-                  <td className={systemUi.tableTd}>
-                    <div className="flex items-center gap-0.5">
+                  <td className={`${systemUi.tableTd} text-right`}>
+                    <div className="flex items-center justify-end gap-0.5">
                       <button className="p-1.5 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-700 transition-colors cursor-pointer" title="编辑" onClick={() => openWpsEditor(t)}>
                         <Edit2 className="w-3.5 h-3.5" />
                       </button>
@@ -1659,38 +1146,61 @@ export default function TemplatePage() {
                 value={createMeta}
                 onChange={setCreateMeta}
                 store={classificationStore}
-                versionPlaceholder={createVersionPlaceholder}
+                hideVersion
+                parseFromDescription
+                autoGenerateName
               />
-              {createMeta.lotLevelIds.length > 0 && (
-                <p className="text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2 mt-4">
-                  生成后进入编辑器，通过标题与正文<strong className="font-medium text-slate-700">手动搭建</strong>章节结构；保存时会同步到范本大纲（供资源绑定勾选）。
-                </p>
+              {createSelectedLotId && (
+                <div className="mt-4 space-y-2">
+                  <label className="block text-xs font-medium text-slate-600">
+                    选择通用模版 <span className="text-rose-500">*</span>
+                  </label>
+                  <FormSelect
+                    value={createGeneralTemplateId}
+                    onChange={(e) => setCreateGeneralTemplateId(e.target.value)}
+                    disabled={compatibleGeneralTemplates.length === 0}
+                  >
+                    <option value="">请选择通用模版</option>
+                    {compatibleGeneralTemplates.map((gt) => (
+                      <option key={gt.id} value={gt.id}>
+                        {gt.name}（{gt.outlineSectionCount ?? 0} 章 / {gt.paragraphCount ?? 0} 段）
+                      </option>
+                    ))}
+                  </FormSelect>
+                  {compatibleGeneralTemplates.length === 0 ? (
+                    <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                      暂无可用的通用模版；请先在「通用模版管理」上传并完成解析后再新建范本。
+                    </p>
+                  ) : (
+                    <p className="text-xs text-slate-500 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
+                      确认后将按所选品类与通用模版<strong className="font-medium text-slate-700">立即拼接</strong>生成引用型范本；编辑器内修改需点击「保存为自定义模版」才会固化并脱离模版关联。
+                    </p>
+                  )}
+                </div>
               )}
             </div>
             <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-200 bg-slate-50">
               <button onClick={() => setShowCreateModal(false)} className="px-4 py-2 text-sm text-slate-600 border border-slate-200 bg-white rounded-lg hover:bg-slate-50 transition-colors">取消</button>
               <button
                 onClick={handleCreate}
-                disabled={createMeta.lotLevelIds.length === 0 || !createMeta.name.trim()}
+                disabled={!createReady}
                 className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {createMeta.lotLevelIds.length > 1
-                  ? `生成 ${createMeta.lotLevelIds.length} 个范本`
-                  : '生成范本'}
+                生成拼接范本
               </button>
             </div>
           </div>
         </ModalOverlay>
       )}
 
-      {/* 复制范本：确认标段 / 名称与描述后再生成 */}
+      {/* 复制范本：确认品类 / 名称与描述后再生成 */}
       {duplicateSourceId && (
         <ModalOverlay>
           <div className={systemUi.modalPanel}>
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
               <div>
                 <h3 className="text-base font-semibold text-slate-900">复制范本</h3>
-                <p className="text-xs text-slate-500 mt-0.5">请重新选择业务板块与标段，并确认范本名称与描述后生成副本（正文与资源插入关系一并保留）。</p>
+                <p className="text-xs text-slate-500 mt-0.5">请重新选择业务板块与品类，并确认范本名称与描述后生成副本（正文与资源插入关系一并保留）。</p>
               </div>
               <button type="button" onClick={closeDuplicateModal} className="text-slate-400 hover:text-slate-600 shrink-0">
                 <X className="w-5 h-5" />
@@ -1756,52 +1266,6 @@ export default function TemplatePage() {
             </div>
           </div>
         </ModalOverlay>
-      )}
-
-      {/* 导入文档元信息弹窗 */}
-      {showImportMetaModal && (
-        <ImportMetaModal
-          meta={importMeta}
-          versionPlaceholder={importVersionPlaceholder}
-          onChange={setImportMeta}
-          onClose={() => setShowImportMetaModal(false)}
-          onNext={() => { setShowImportMetaModal(false); setShowImportModal(true); }}
-        />
-      )}
-
-      {/* 导入文档弹窗 */}
-      {showImportModal && (
-        <ImportDocumentModal
-          meta={importMeta}
-          templates={templates}
-          onClose={() => setShowImportModal(false)}
-          onBack={() => { setShowImportModal(false); setShowImportMetaModal(true); }}
-          onImported={(imported, file) => {
-            setShowImportModal(false);
-            setTemplates((prev) => {
-              const next = [...prev, ...imported];
-              setMockTemplates(next);
-              for (const tpl of imported) {
-                appendDataAudit({
-                  scope: 'template',
-                  action: 'create',
-                  entityId: tpl.id,
-                  label: tpl.name,
-                  detail: tpl.lotLevelName ? `导入生成 · ${tpl.lotLevelName}` : '导入生成',
-                  actor: getMockActor(),
-                });
-              }
-              return next;
-            });
-            if (imported.length > 0) {
-              setEditingTemplateFile(file);
-              openWpsEditor(imported[0]);
-            }
-            if (imported.length > 1) {
-              setSystemNotice(`已导入并生成 ${imported.length} 个范本，当前打开第 1 个`);
-            }
-          }}
-        />
       )}
 
       <SystemDialog
@@ -1892,398 +1356,3 @@ export default function TemplatePage() {
   );
 }
 
-// ─── 导入文档元信息弹窗 ─────────────────────────────────────────────────────────
-
-interface ImportMetaModalProps {
-  meta: TemplateLotMetaValue;
-  versionPlaceholder: string;
-  onChange: (meta: TemplateLotMetaValue) => void;
-  onClose: () => void;
-  onNext: () => void;
-}
-
-function ImportMetaModal({ meta, versionPlaceholder, onChange, onClose, onNext }: ImportMetaModalProps) {
-  const store = useMemo(() => getClassificationStore(), []);
-  const canNext = meta.lotLevelIds.length > 0 && meta.name.trim();
-
-  return (
-    <ModalOverlay>
-      <div className={`${systemUi.modalPanel} flex flex-col max-h-[90vh]`}>
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
-          <h3 className="text-base font-semibold text-slate-900">导入范本</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
-        </div>
-        <div className="p-6 overflow-y-auto">
-          <TemplateLotMetaFields
-            value={meta}
-            onChange={onChange}
-            store={store}
-            versionPlaceholder={versionPlaceholder}
-          />
-        </div>
-        <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-200 bg-slate-50">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 border border-slate-200 bg-white rounded-lg hover:bg-slate-50 transition-colors">取消</button>
-          <button
-            onClick={onNext}
-            disabled={!canNext}
-            className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {meta.lotLevelIds.length > 1 ? '继续解析（将生成多个范本）' : '继续解析'}
-          </button>
-        </div>
-      </div>
-    </ModalOverlay>
-  );
-}
-
-// ─── 导入文档弹窗 ───────────────────────────────────────────────────────────────
-
-interface ImportDocumentModalProps {
-  meta: TemplateLotMetaValue;
-  templates: Template[];
-  onClose: () => void;
-  onBack: () => void;
-  onImported: (templates: Template[], file: File | null) => void;
-}
-
-function ImportDocumentModal({ meta, templates, onClose, onBack, onImported }: ImportDocumentModalProps) {
-  const [file, setFile] = useState<File | null>(null);
-  const [parsing, setParsing] = useState(false);
-  const [error, setError] = useState('');
-  const [previewHtml, setPreviewHtml] = useState('');
-  const [previewTitle, setPreviewTitle] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'preview' | 'code'>('preview');
-  const [showPreview, setShowPreview] = useState(false);
-
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    if (f) {
-      setFile(f);
-      setError('');
-      setPreviewHtml('');
-      setPreviewTitle(null);
-      setShowPreview(false);
-    }
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    const f = e.dataTransfer.files?.[0];
-    if (f) {
-      setFile(f);
-      setError('');
-      setPreviewHtml('');
-      setPreviewTitle(null);
-      setShowPreview(false);
-    }
-  };
-
-  const handlePreview = async () => {
-    if (!file) return;
-    setParsing(true);
-    setError('');
-    try {
-      const ext = file.name.split('.').pop()?.toLowerCase() || '';
-      let html = '';
-      let title: string | null = null;
-      
-      if (ext === 'docx') {
-        // 使用增强解析器，支持图片嵌入
-        const result = await parseDocxEnhanced(file, {
-          embedImages: true,
-          preserveStyleIds: true,
-        });
-        html = result.html;
-        title = result.title;
-      } else if (ext === 'doc') {
-        try {
-          const arrayBuffer = await file.arrayBuffer();
-          const result = await mammoth.convertToHtml({ arrayBuffer });
-          html = postProcessMammothHTML(result.value);
-        } catch {
-          html = `<h2>第一章 招标公告</h2><p>基于文档《${file.name}》导入的招标公告内容。</p><h2>第二章 投标人须知</h2><p>投标人须知条款内容。</p><h2>第三章 技术规格要求</h2><p>技术规格及参数要求。</p><h2>第四章 评标办法</h2><p>评标标准及办法。</p><h2>第五章 合同条款</h2><p>合同主要条款。</p>`;
-        }
-      } else if (ext === 'pdf') {
-        html = `<h2>第一章 招标公告</h2><p>基于 PDF 文档《${file.name}》解析的招标公告内容示例。</p><h2>第二章 投标人须知</h2><p>投标人须知条款内容示例。</p><h2>第三章 技术规格要求</h2><p>技术规格及参数要求示例。</p><h2>第四章 评标办法</h2><p>评标标准及办法示例。</p><h2>第五章 合同条款</h2><p>合同主要条款示例。</p>`;
-      } else {
-        throw new Error('仅支持 .doc、.docx、.pdf 格式文件');
-      }
-
-      if (!html.includes('<h') && !html.includes('<H')) {
-        html = `<h2>${file.name.replace(/\.[^.]+$/, '')}</h2><div class="quoted-block">${html}</div>`;
-      }
-
-      setPreviewHtml(html);
-      setPreviewTitle(title);
-      setShowPreview(true);
-      setActiveTab('preview');
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : '解析失败');
-    } finally {
-      setParsing(false);
-    }
-  };
-
-  const parseDocument = async () => {
-    if (!file) return;
-    
-    // 如果已经预览过，直接使用预览的HTML
-    let html = previewHtml;
-    let fallbackNotice = '';
-    
-    if (!html) {
-      // 如果没有预览，先解析
-      setParsing(true);
-      setError('');
-      try {
-        const ext = file.name.split('.').pop()?.toLowerCase() || '';
-        if (ext === 'docx') {
-          const result = await parseDocxEnhanced(file, {
-            embedImages: true,
-            preserveStyleIds: true,
-          });
-          html = result.html;
-        } else if (ext === 'doc') {
-          try {
-            const arrayBuffer = await file.arrayBuffer();
-            const result = await mammoth.convertToHtml({ arrayBuffer });
-            html = postProcessMammothHTML(result.value);
-          } catch {
-            fallbackNotice = `<p style="background:#fffbeb;border:1px solid #fcd34d;color:#b45309;padding:8px 12px;border-radius:6px;font-size:13px;">该文件为旧版 .doc 格式，系统已将其转为可编辑文本，您可直接在编辑器中修改。</p>`;
-            html = `<h2>第一章 招标公告</h2><p>基于文档《${file.name}》导入的招标公告内容。</p><h2>第二章 投标人须知</h2><p>投标人须知条款内容。</p><h2>第三章 技术规格要求</h2><p>技术规格及参数要求。</p><h2>第四章 评标办法</h2><p>评标标准及办法。</p><h2>第五章 合同条款</h2><p>合同主要条款。</p>`;
-          }
-        } else if (ext === 'pdf') {
-          html = `<h2>第一章 招标公告</h2><p>基于 PDF 文档《${file.name}》解析的招标公告内容示例。</p><h2>第二章 投标人须知</h2><p>投标人须知条款内容示例。</p><h2>第三章 技术规格要求</h2><p>技术规格及参数要求示例。</p><h2>第四章 评标办法</h2><p>评标标准及办法示例。</p><h2>第五章 合同条款</h2><p>合同主要条款示例。</p>`;
-        }
-
-        if (!html.includes('<h') && !html.includes('<H')) {
-          html = `<h2>${file.name.replace(/\.[^.]+$/, '')}</h2><div class="quoted-block">${html}</div>`;
-        }
-
-        if (fallbackNotice) {
-          html = fallbackNotice + html;
-        }
-      } catch (err: unknown) {
-        setError(err instanceof Error ? err.message : '解析失败');
-        setParsing(false);
-        return;
-      } finally {
-        setParsing(false);
-      }
-    }
-
-    const lotIds = meta.lotLevelIds.length > 0
-      ? meta.lotLevelIds
-      : (meta.lotLevelId ? [meta.lotLevelId] : []);
-    if (lotIds.length === 0) return;
-
-    const baseTs = Date.now();
-    const today = new Date().toISOString().split('T')[0];
-    const importedTemplates: Template[] = lotIds.map((lotLevelId, index) => {
-      const path = getLotLevelPath(lotLevelId);
-      const id = `import-${baseTs}-${index}`;
-      const sections = parseSectionsFromHTML(html, id);
-      return {
-        id,
-        name: meta.name || file.name.replace(/\.[^.]+$/, ''),
-        description: meta.description || `由文档《${file.name}》导入生成`,
-        frameworkId: 'fw-default',
-        lotLevelId,
-        ...(path ? templateFieldsFromLotPath(path) : {}),
-        version: meta.version?.trim() || suggestVersionForLot(templates, lotLevelId),
-        status: 'draft' as const,
-        editProgress: 100,
-        createdAt: today,
-        updatedAt: today,
-        sections,
-        variables: [],
-      };
-    });
-
-    if (file.name.toLowerCase().endsWith('.docx')) {
-      try {
-        const content = await blobToBase64(file);
-        saveTemplateDocxCache(importedTemplates[0]?.id ?? `import-${baseTs}-0`, content);
-        await Promise.all(
-          importedTemplates.map((tpl) => {
-            saveTemplateDocxCache(tpl.id, content);
-            return fetch(`/api/documents/${encodeURIComponent(tpl.id)}`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ content }),
-            });
-          }),
-        );
-      } catch {
-        /* 编辑器打开时会再次尝试上传 */
-      }
-    }
-
-    onImported(importedTemplates, file);
-  };
-
-  return (
-    <ModalOverlay>
-      <div
-        className={`saas-modal-panel flex flex-col max-h-[90vh] bg-white rounded-xl shadow-xl transition-all duration-300 ${
-          showPreview ? 'saas-modal-panel-xl' : ''
-        }`}
-      >
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
-          <div>
-            <h3 className="text-base font-semibold text-slate-900">导入标书文档</h3>
-            {previewTitle && (
-              <p className="text-xs text-slate-500 mt-0.5">识别标题：{previewTitle}</p>
-            )}
-          </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
-        </div>
-        
-        <div className={`${showPreview ? 'flex' : 'block'} overflow-hidden`} style={{ height: showPreview ? '600px' : 'auto' }}>
-          {/* 左侧：文件选择和预览控制 */}
-          <div className={`${showPreview ? 'w-80 border-r border-slate-200' : 'w-full'} flex flex-col`}>
-            <div className="p-6 space-y-4 overflow-y-auto flex-1">
-              <div
-                className="border-2 border-dashed border-slate-300 rounded-lg p-6 text-center hover:border-blue-500 hover:bg-blue-50 transition-colors cursor-pointer"
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={handleDrop}
-                onClick={() => document.getElementById('import-file-input')?.click()}
-              >
-                {file ? (
-                  <div className="space-y-1">
-                    <FileText className="w-6 h-6 mx-auto text-blue-500" />
-                    <p className="text-xs font-medium text-slate-700 truncate">{file.name}</p>
-                    <p className="text-xs text-slate-400">点击或拖拽更换文件</p>
-                  </div>
-                ) : (
-                  <div className="space-y-1">
-                    <Upload className="w-6 h-6 mx-auto text-slate-400" />
-                    <p className="text-xs text-slate-500">点击或拖拽文件上传</p>
-                    <p className="text-xs text-slate-400">支持 .doc / .docx / .pdf</p>
-                  </div>
-                )}
-                <input
-                  id="import-file-input"
-                  type="file"
-                  accept=".doc,.docx,.pdf"
-                  className="hidden"
-                  onChange={handleFileSelect}
-                />
-              </div>
-
-              {error && (
-                <div className="p-3 bg-rose-50 text-rose-600 text-xs rounded-lg border border-rose-200">
-                  {error}
-                </div>
-              )}
-
-              {file && (
-                <div className="flex items-center justify-between text-xs text-slate-500 px-1">
-                  <span>大小：{(file.size / 1024).toFixed(1)} KB</span>
-                  <span>格式：{file.name.split('.').pop()?.toUpperCase()}</span>
-                </div>
-              )}
-
-              {/* 预览按钮 */}
-              {file && !showPreview && (
-                <button
-                  onClick={handlePreview}
-                  disabled={parsing}
-                  className="w-full px-4 py-2 text-sm bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                  {parsing && <Loader2 className="w-4 h-4 animate-spin" />}
-                  {parsing ? '解析中...' : '预览文档'}
-                </button>
-              )}
-
-              {showPreview && (
-                <div className="space-y-2">
-                  <button
-                    onClick={() => setShowPreview(false)}
-                    className="w-full px-4 py-2 text-sm border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 transition-colors"
-                  >
-                    关闭预览
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* 底部按钮 */}
-            <div className="flex justify-end gap-2 px-6 py-4 border-t border-slate-200 bg-slate-50">
-              <button onClick={onBack} className="px-3 py-1.5 text-sm text-slate-600 border border-slate-200 bg-white rounded-lg hover:bg-slate-50 transition-colors">上一步</button>
-              <button onClick={onClose} className="px-3 py-1.5 text-sm text-slate-600 border border-slate-200 bg-white rounded-lg hover:bg-slate-50 transition-colors">取消</button>
-              <button
-                onClick={parseDocument}
-                disabled={!file || parsing}
-                className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-              >
-                {parsing && <Loader2 className="w-4 h-4 animate-spin" />}
-                {parsing ? '解析中...' : '确认导入'}
-              </button>
-            </div>
-          </div>
-
-          {/* 右侧：预览区域 */}
-          {showPreview && previewHtml && (
-            <div className="flex-1 flex flex-col bg-slate-50">
-              {/* 标签页 */}
-              <div className="flex items-center gap-2 px-4 py-2 border-b border-slate-200 bg-white">
-                <button
-                  onClick={() => setActiveTab('preview')}
-                  className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
-                    activeTab === 'preview'
-                      ? 'bg-slate-100 text-slate-900 font-medium'
-                      : 'text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  渲染预览
-                </button>
-                <button
-                  onClick={() => setActiveTab('code')}
-                  className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
-                    activeTab === 'code'
-                      ? 'bg-slate-100 text-slate-900 font-medium'
-                      : 'text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  HTML 源码
-                </button>
-              </div>
-
-              {/* 预览内容 */}
-              <div className="flex-1 overflow-auto p-4">
-                {activeTab === 'preview' && (
-                  <div
-                    className="bg-white p-8 rounded-lg shadow-sm docx-preview"
-                    dangerouslySetInnerHTML={{ __html: previewHtml }}
-                  />
-                )}
-                {activeTab === 'code' && (
-                  <pre className="text-xs text-slate-700 bg-white p-4 rounded-lg shadow-sm overflow-auto whitespace-pre-wrap border border-slate-200" style={{ maxHeight: '500px' }}>
-                    {formatHtml(previewHtml)}
-                  </pre>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    </ModalOverlay>
-  );
-}
-
-function formatHtml(html: string): string {
-  let formatted = '';
-  let indent = '';
-  const tab = '  ';
-  html.split(/>(<)/).forEach((element) => {
-    if (element.match(/^\/\w/)) {
-      indent = indent.substring(tab.length);
-    }
-    formatted += indent + element + '>\n';
-    if (element.match(/^<?\w[^>]*[^\/]$/)) {
-      indent += tab;
-    }
-  });
-  return formatted.substring(1, formatted.length - 3);
-}

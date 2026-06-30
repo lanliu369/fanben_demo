@@ -5,7 +5,7 @@
  * @deprecated 以下旧三级类型已移除，请勿新增引用：
  * - Industry（产业领域）→ 使用 BusinessSector
  * - ProcurementCategory（采购分类）→ 拆解为 BusinessType（能源/阶段/性质）
- * - Category（品类叶子）→ 使用 LotLevel（标段级别）
+ * - Category（品类叶子）→ 使用 LotLevel（品类级别）
  *
  * 历史 localStorage（oo-classification / oo-categories）由 migrate-store 自动迁移至 oo-classification-v2。
  */
@@ -19,7 +19,7 @@ export interface BusinessSector {
   name: string;
   /** 排序编号，数字越小越靠前，最大 99 */
   sortOrder?: number;
-  /** 一级分类业务说明（字典元数据，非标段字段） */
+  /** 一级分类业务说明（字典元数据，非品类字段） */
   description?: string;
   createdAt: string;
   updatedAt: string;
@@ -33,7 +33,7 @@ export interface BusinessType {
   businessNature: string;
   displayName: string;
   sortOrder?: number;
-  /** 二级分类业务说明（字典元数据，非标段字段） */
+  /** 二级分类业务说明（字典元数据，非品类字段） */
   description?: string;
   /** 第 5 级「无系统/专业/阶段」占位节点的树形说明 */
   unassignedDomainDescription?: string;
@@ -46,13 +46,13 @@ export interface DomainLevel {
   name: string;
   businessTypeId: string;
   sortOrder?: number;
-  /** 三级分类业务说明（字典元数据，非标段字段） */
+  /** 三级分类业务说明（字典元数据，非品类字段） */
   description?: string;
   createdAt: string;
   updatedAt: string;
 }
 
-/** 标段级别：最终业务叶子节点 */
+/** 品类级别：最终业务叶子节点 */
 export interface LotLevel {
   id: string;
   code: string;
@@ -88,7 +88,58 @@ export interface CategoryFileUpload {
   uploadedBy: string;
 }
 
-/** 标段完整路径（用于列表展示与关联模块冗余字段） */
+/** 通用资源管理：范本通用模版（元数据；文件二进制存 IndexedDB） */
+export interface GeneralTemplateParagraph {
+  id: string;
+  order: number;
+  html: string;
+  sectionTitle?: string;
+}
+
+export interface GeneralTemplateOutlineSection {
+  id: string;
+  title: string;
+  level: number;
+  order: number;
+  paragraphIds: string[];
+  children?: GeneralTemplateOutlineSection[];
+}
+
+/** 上传后自动解析：大纲 + 段落正文 */
+export interface GeneralTemplateParsedContent {
+  contentVersion: number;
+  updatedAt: string;
+  sections: GeneralTemplateOutlineSection[];
+  paragraphs: GeneralTemplateParagraph[];
+}
+
+export interface GeneralTemplate {
+  id: string;
+  /** 用户命名 */
+  name: string;
+  description?: string;
+  /** 历史数据可能含品类关联；新建通用模版不再绑定品类 */
+  lotLevelIds: string[];
+  originalFileName: string;
+  mimeType: string;
+  fileSize: number;
+  createdAt: string;
+  updatedAt: string;
+  uploadedBy: string;
+  /** 解析版本号；每次重新解析递增 */
+  contentVersion?: number;
+  /** 各范本最近一次将本模版同步进章节时的 contentVersion */
+  templateSyncedVersion?: Record<string, number>;
+  /** 解析摘要（列表展示） */
+  paragraphCount?: number;
+  outlineSectionCount?: number;
+  /** 正文内 {{变量}} 占位符数量（去重） */
+  variableCount?: number;
+  /** 正文内资源引用块数量（去重 textFragmentId） */
+  resourceCount?: number;
+}
+
+/** 品类完整路径（用于列表展示与关联模块冗余字段） */
 export interface LotLevelPath {
   lotLevelId: string;
   lotLevelCode: string;
@@ -145,7 +196,12 @@ export interface TextVersion {
 export interface TextFragment {
   id: string;
   name: string;
-  module?: 'text' | 'qualification' | 'evaluation' | 'contract-clause';
+  /**
+   * 专用资源（资格/技规/评标/合同）：与通用模版对齐的唯一标识。
+   * 同品类、同模块下不可重复；跨品类可重复。范本拼接时按「品类 + 变量名称」匹配正文。
+   */
+  slotName?: string;
+  module?: 'text' | 'qualification' | 'technical-spec' | 'evaluation' | 'contract-clause';
   content: string;
   description?: string;
   createdAt: string;
@@ -157,9 +213,10 @@ export interface TextFragment {
   /** 各范本最近一次将本资源正文同步进章节时的 contentVersion */
   templateSyncedVersion?: Record<string, number>;
   /**
-   * 适用标段范围（数据来源：招采业务分类叶子标段）
-   * - `true` 或未设置：通用标段，任意范本均可引用、侧栏展示。
-   * - `false`：仅 `applicableLotLevelIds` 所选标段下的范本侧栏展示。
+   * 适用品类范围（数据来源：招采业务分类叶子品类）
+   * - 每个资源仅绑定一个品类级别；`applicableLotLevelIds` 长度为 0 或 1。
+   * - `applicableToAllLotLevels === false` 且 `applicableLotLevelIds` 含唯一 id 为当前规范。
+   * - 历史「通用」数据（`applicableToAllLotLevels !== false`）只读兼容，保存时收敛为单品类。
    */
   applicableToAllLotLevels?: boolean;
   /** @deprecated 使用 applicableToAllLotLevels */
@@ -202,7 +259,7 @@ export interface Template {
   name: string;
   description?: string;
   frameworkId: string;
-  /** 绑定标段级别（叶子） */
+  /** 绑定品类级别（叶子） */
   lotLevelId: string;
   lotLevelCode?: string;
   lotLevelName?: string;
@@ -231,6 +288,10 @@ export interface Template {
   updatedAt: string;
   sections: TemplateSection[];
   variables: TemplateVariable[];
+  /** 引用的通用模版 id（新建时可选绑定） */
+  generalTemplateId?: string;
+  /** 范本内模版段落最近一次对齐到的 contentVersion */
+  generalTemplateSyncedVersion?: number;
   /** 逻辑删除 */
   deletedAt?: string;
   deletedBy?: string;
@@ -273,7 +334,7 @@ export interface BidDocument {
   updatedAt: string;
   variableValues: VariableValue[];
   sections: BidDocumentSection[];
-  /** 继承范本标段与招采规则 */
+  /** 继承范本品类与招采规则 */
   lotLevelId?: string;
   lotLevelCode?: string;
   lotLevelName?: string;
@@ -340,9 +401,11 @@ export type TabKey =
   | 'category'
   | 'text'
   | 'qualification'
+  | 'technical-spec'
   | 'evaluation'
   | 'contract-clause'
   | 'template-variables'
+  | 'general-template'
   | 'template'
   | 'bid-document';
 

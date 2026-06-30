@@ -58,7 +58,7 @@ export function parseEvaluationMethodLabel(label: string): EvaluationMethod | nu
   return (hit as EvaluationMethod) ?? null;
 }
 
-/** 树导航：选中「无系统/专业/阶段」的标段 */
+/** 树导航：选中「无系统/专业/阶段」的品类 */
 export const DOMAIN_LEVEL_NONE_NAV_ID = '__domain-none__';
 
 export const IMPORT_TEMPLATE_HEADERS = [
@@ -67,7 +67,7 @@ export const IMPORT_TEMPLATE_HEADERS = [
   '业务阶段',
   '业务性质',
   '系统专业阶段级别',
-  '标段级别',
+  '品类级别',
   '采购方式',
   '评审办法',
 ] as const;

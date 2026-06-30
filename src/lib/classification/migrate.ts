@@ -38,7 +38,7 @@ export function normalizeTextFragmentLotScope(f: TextFragment): TextFragment {
   const rawIds = f.applicableLotLevelIds ?? f.applicableCategoryIds ?? [];
   const applicableLotLevelIds = applicableToAllLotLevels
     ? []
-    : migrateFragmentLotLevelIds(rawIds);
+    : migrateFragmentLotLevelIds(rawIds).slice(0, 1);
   const {
     applicableToAllCategories: _a,
     applicableCategoryIds: _b,

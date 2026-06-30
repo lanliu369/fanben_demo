@@ -96,7 +96,7 @@ export function buildDirectoryDetailPanel(
       meta: { childCount: node.childCount, sortOrder, descendantCount },
       infoRows: [
         ...baseRows,
-        { label: '说明', value: '未配置专业域的标段归集于此（第 5 级）' },
+        { label: '说明', value: '未配置专业域的品类归集于此（第 5 级）' },
       ],
       treeDescription: showTreeDescription
         ? (bt?.unassignedDomainDescription ?? node.description)

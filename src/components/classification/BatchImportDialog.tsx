@@ -102,7 +102,7 @@ export function BatchImportDialog({ open, onClose, onImported }: Props) {
       <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 shrink-0">
           <div>
-            <h3 className="text-lg font-semibold text-slate-900">批量上传标段</h3>
+            <h3 className="text-lg font-semibold text-slate-900">批量上传品类</h3>
             <p className="text-xs text-slate-400 mt-0.5">
               上传 → 解析 → 校验预览 → 确认导入（板块可自动创建；采购/评审须匹配枚举）
             </p>
@@ -262,7 +262,7 @@ export function BatchImportDialog({ open, onClose, onImported }: Props) {
                     <thead className="bg-slate-50 text-slate-500 sticky top-0 border-b border-slate-200">
                       <tr>
                         <th className="text-left px-2 py-1.5 font-medium w-10">行</th>
-                        <th className="text-left px-2 py-1.5 font-medium">标段级别</th>
+                        <th className="text-left px-2 py-1.5 font-medium">品类级别</th>
                         <th className="text-left px-2 py-1.5 font-medium">业务板块</th>
                         <th className="text-left px-2 py-1.5 font-medium">业务类型</th>
                         <th className="text-left px-2 py-1.5 font-medium w-20">结果</th>

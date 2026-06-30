@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Bot, Edit2, FileCheck, FilePlus2, FileText, Loader2, Plus, Save, Scale, Search, Shield, Trash2 } from 'lucide-react';
+import { ArrowLeft, BookOpen, Bot, Edit2, FileCheck, FilePlus2, FileText, Loader2, Plus, Save, Scale, Search, Shield, Trash2 } from 'lucide-react';
 import type { Template, TemplateSection, TemplateVariable, TextBinding, TextFragment } from '@/types';
 import { getGlobalTemplateVariables, getMockTextFragments } from '@/lib/mockData';
 import { resolveTemplateLotLevelId } from '@/lib/classification';
@@ -186,7 +186,7 @@ function collectTemplateFallbackTextCards(template: Template, fragments: TextFra
 }
 
 function systemTabToResourceModule(
-  tab: 'text' | 'qualification' | 'evaluation' | 'contract' | 'variables' | 'ai',
+  tab: 'text' | 'qualification' | 'technical-spec' | 'evaluation' | 'contract' | 'variables' | 'ai',
 ): ResourceModule | null {
   if (tab === 'variables' || tab === 'ai') return null;
   if (tab === 'contract') return 'contract-clause';
@@ -226,7 +226,7 @@ export function OnlyOfficeTemplateEditor({ template, onBack, onSave }: OnlyOffic
   const generationRef = useRef(0);
 
   // ── 侧栏状态 ──
-  const [activeSystemTab, setActiveSystemTab] = useState<'text' | 'qualification' | 'evaluation' | 'contract' | 'variables' | 'ai'>('text');
+  const [activeSystemTab, setActiveSystemTab] = useState<'text' | 'qualification' | 'technical-spec' | 'evaluation' | 'contract' | 'variables' | 'ai'>('text');
   const [insertHint, setInsertHint] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [resourceFilterQuery, setResourceFilterQuery] = useState('');
@@ -326,6 +326,7 @@ export function OnlyOfficeTemplateEditor({ template, onBack, onSave }: OnlyOffic
 
   const activeResourceTabLabel = useMemo(() => {
     if (activeSystemTab === 'qualification') return '资格条件';
+    if (activeSystemTab === 'technical-spec') return '技术规范';
     if (activeSystemTab === 'evaluation') return '评标办法';
     if (activeSystemTab === 'contract') return '合同条款';
     return '文本';
@@ -563,6 +564,7 @@ export function OnlyOfficeTemplateEditor({ template, onBack, onSave }: OnlyOffic
   const systemTabs = useMemo(() => [
     { key: 'text' as const, label: '文本管理', icon: FileText },
     { key: 'qualification' as const, label: '资格条件', icon: Shield },
+    { key: 'technical-spec' as const, label: '技术规范', icon: BookOpen },
     { key: 'evaluation' as const, label: '评标办法', icon: Scale },
     { key: 'contract' as const, label: '合同条款', icon: FileCheck },
     { key: 'variables' as const, label: '变量库', icon: FilePlus2 },
@@ -767,6 +769,7 @@ export function OnlyOfficeTemplateEditor({ template, onBack, onSave }: OnlyOffic
               {/* 资源类 Tab */}
               {(activeSystemTab === 'text'
                 || activeSystemTab === 'qualification'
+                || activeSystemTab === 'technical-spec'
                 || activeSystemTab === 'evaluation'
                 || activeSystemTab === 'contract') && (
                 <>

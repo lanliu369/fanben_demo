@@ -92,7 +92,7 @@ export default function DashboardPage() {
 
   const stats = [
     {
-      title: '标段总数',
+      title: '品类总数',
       value: metrics.lotLevelCount,
       icon: <FolderTree className="w-6 h-6 text-blue-600" />,
       subtext: `覆盖 ${classificationStats.businessSectorCount} 个业务板块`,
@@ -163,7 +163,7 @@ export default function DashboardPage() {
           </div>
           <div>
             <p className="text-sm font-medium text-slate-900">维护招采分类</p>
-            <p className="text-xs text-slate-500">管理业务板块与标段主数据</p>
+            <p className="text-xs text-slate-500">管理业务板块与品类主数据</p>
           </div>
         </button>
         <button

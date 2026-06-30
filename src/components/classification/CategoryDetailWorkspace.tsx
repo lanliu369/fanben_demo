@@ -169,7 +169,7 @@ export function CategoryDetailWorkspace({
           <HintPanel
             icon={<CategoryEmptyIcon />}
             title="请选择分类节点"
-            description="在左侧导航中点击业务板块、业务类型或标段，右侧将展示基础信息与分类说明。"
+            description="在左侧导航中点击业务板块、业务类型或品类，右侧将展示基础信息与分类说明。"
             meta="支持在树形模式下查看详情，或切换列表模式批量浏览"
           />
         </div>
@@ -282,7 +282,7 @@ export function CategoryDetailWorkspace({
 
         {detail.kind !== 'lot' && detail.childLots.length > 0 && (
           <SectionCard
-            title="下属标段"
+            title="下属品类"
             titleExtra={
               <span className="text-xs font-normal text-slate-500">
                 {detail.childLots.length} 项
@@ -308,13 +308,13 @@ export function CategoryDetailWorkspace({
         )}
 
         {detail.kind !== 'lot' && detail.childLots.length === 0 && (
-          <SectionCard title="下属标段" bodyClassName="p-4">
+          <SectionCard title="下属品类" bodyClassName="p-4">
             <HintPanel
               tone="info"
               icon={<Inbox className="w-5 h-5 text-slate-500" />}
-              title="当前节点下暂无标段"
-              description="可在工具栏点击「新增标段」创建数据，或通过批量上传导入 Excel。"
-              meta="切换列表模式可查看全部标段并筛选"
+              title="当前节点下暂无品类"
+              description="可在工具栏点击「新增品类」创建数据，或通过批量上传导入 Excel。"
+              meta="切换列表模式可查看全部品类并筛选"
             />
           </SectionCard>
         )}

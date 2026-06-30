@@ -18,7 +18,7 @@ function candidatesByName(name: string, lotLevelId: string | undefined, fragment
 }
 
 /**
- * 将 HTML 中的资源嵌入占位展开为对应资源正文（按范本标段过滤）。
+ * 将 HTML 中的资源嵌入占位展开为对应资源正文（按范本品类过滤）。
  * 无 DOM 环境时跳过展开，避免 SSR 报错。
  */
 export function expandNestedResourceEmbeds(
@@ -73,7 +73,7 @@ export function expandNestedResourceEmbeds(
       if (!textFragmentAppliesToTemplateLot(frag, lotLevelId)) {
         span.setAttribute(
           'title',
-          '当前范本标段不适用该嵌入资源；请在资源管理中调整适用范围或在对应标段内引用',
+          '当前范本品类不适用该嵌入资源；请在资源管理中调整适用范围或在对应品类内引用',
         );
         span.classList.add('resource-embed-blocked');
         continue;
