@@ -3,18 +3,26 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
+  BookOpen,
   FilePlus2,
   FileText,
+  Gavel,
   Loader2,
   Plus,
   RefreshCw,
+  ScrollText,
   Search,
+  ShieldCheck,
 } from 'lucide-react';
-import type { GeneralTemplate, TemplateVariable, TextFragment } from '@/types';
+import type { LucideIcon } from 'lucide-react';
+import type { GeneralTemplate, TemplateVariable } from '@/types';
 import { getGlobalTemplateVariables, getMockTemplates, getMockTextFragments, syncGeneralTemplateToAllTemplates } from '@/lib/mockData';
-import { sortByCreatedAtDesc } from '@/lib/sortByCreatedAtDesc';
-import { buildResourceInsertHtml } from '@/lib/quotedBlockHtml';
-import { normalizePasteHtmlForWps } from '@/lib/wpsPasteHtmlNormalize';
+import {
+  collectDedicatedResourceSlotCatalog,
+  DEDICATED_RESOURCE_MODULE_LABELS,
+  type DedicatedResourceModule,
+  type DedicatedResourceSlotItem,
+} from '@/lib/dedicatedResourceSlots';
 import { ensureGeneralTemplateDocxOnServer, updateGeneralTemplateFromHtml } from '@/lib/general-templates';
 import { collectTemplateIdsUsingGeneralTemplate } from '@/lib/generalTemplateSync';
 import type { WebOfficeSdkInstance } from '@/lib/webOfficeSdk';
@@ -27,6 +35,17 @@ type Props = {
   onBack: () => void;
   onUpdated: () => void;
 };
+
+const DEDICATED_RESOURCE_GROUPS: {
+  module: DedicatedResourceModule;
+  label: string;
+  icon: LucideIcon;
+}[] = [
+  { module: 'qualification', label: DEDICATED_RESOURCE_MODULE_LABELS.qualification, icon: ShieldCheck },
+  { module: 'technical-spec', label: DEDICATED_RESOURCE_MODULE_LABELS['technical-spec'], icon: BookOpen },
+  { module: 'evaluation', label: DEDICATED_RESOURCE_MODULE_LABELS.evaluation, icon: Gavel },
+  { module: 'contract-clause', label: DEDICATED_RESOURCE_MODULE_LABELS['contract-clause'], icon: ScrollText },
+];
 
 type DocEditorLoose = {
   executeMethod?: (name: string, params: unknown[], cb?: () => void) => void;
@@ -63,9 +82,15 @@ function buildVariableInsertHtml(v: TemplateVariable): string {
   );
 }
 
-function stripHtmlPreview(html: string) {
-  if (!html) return '';
-  return html.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+/** 专有资源占位：插入变量名称，范本拼接时按「品类 + 变量名称」匹配正文 */
+function buildResourceSlotInsertHtml(slotName: string, module: DedicatedResourceModule): string {
+  const name = escapeHtml(slotName.trim());
+  const mod = escapeHtml(module);
+  return (
+    `<span data-resource-slot="1" data-resource-slot-name="${name}" data-resource-module="${mod}" ` +
+    `style="display:inline;padding:2px 8px;background:#ffedd5;color:#c2410c;border-radius:6px;` +
+    `font-size:inherit;line-height:inherit;font-weight:500;border:1px solid #fdba74;white-space:nowrap;vertical-align:baseline;">${name}</span>`
+  );
 }
 
 async function pasteViaWpsWebOfficeApplication(
@@ -129,6 +154,7 @@ export function GeneralTemplateEditor({ entry, onBack, onUpdated }: Props) {
   const [ooConnectionHint, setOoConnectionHint] = useState<string | null>(null);
   const [insertHint, setInsertHint] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'variables' | 'resources'>('variables');
+  const [activeResourceModule, setActiveResourceModule] = useState<DedicatedResourceModule>('qualification');
   const [resourceQuery, setResourceQuery] = useState('');
   const [syncConfirmOpen, setSyncConfirmOpen] = useState(false);
   const [syncResultMessage, setSyncResultMessage] = useState<string | null>(null);
@@ -145,17 +171,29 @@ export function GeneralTemplateEditor({ entry, onBack, onUpdated }: Props) {
   const editorContainerIdRef = useRef(`wps-gt-${entry.id}-${Math.random().toString(36).slice(2, 8)}`);
 
   const globalVariables = useMemo(() => getGlobalTemplateVariables(), []);
-  const allFragments = useMemo(() => sortByCreatedAtDesc(getMockTextFragments()), []);
+  const resourceSlots = useMemo(
+    () => collectDedicatedResourceSlotCatalog(getMockTextFragments()),
+    // 每次渲染读档，与资源管理保存后回到编辑器时保持一致
+  );
 
-  const filteredFragments = useMemo(() => {
+  const slotsInActiveModule = useMemo(() => {
     const q = resourceQuery.trim().toLowerCase();
-    if (!q) return allFragments;
-    return allFragments.filter(
-      (f) =>
-        f.name.toLowerCase().includes(q)
-        || (f.description ?? '').toLowerCase().includes(q),
+    return resourceSlots
+      .filter((item) => item.module === activeResourceModule)
+      .filter((item) => !q || item.slotName.toLowerCase().includes(q));
+  }, [activeResourceModule, resourceQuery, resourceSlots]);
+
+  useEffect(() => {
+    if (activeTab !== 'resources') return;
+    const hasCurrent = resourceSlots.some((item) => item.module === activeResourceModule);
+    if (hasCurrent) return;
+    const first = DEDICATED_RESOURCE_GROUPS.find((group) =>
+      resourceSlots.some((item) => item.module === group.module),
     );
-  }, [allFragments, resourceQuery]);
+    if (first) {
+      setActiveResourceModule(first.module);
+    }
+  }, [activeTab, activeResourceModule, resourceSlots]);
 
   const templateRefCount = useMemo(() => {
     return collectTemplateIdsUsingGeneralTemplate(entry.id, getMockTemplates()).length;
@@ -232,10 +270,11 @@ export function GeneralTemplateEditor({ entry, onBack, onUpdated }: Props) {
     await insertAtCursor(key, html, label);
   }, [insertAtCursor]);
 
-  const handleInsertResource = useCallback(async (frag: TextFragment) => {
-    const html = normalizePasteHtmlForWps(frag.content ?? '');
-    const { plainBlock, htmlBlock } = buildResourceInsertHtml(html, frag.id);
-    await insertAtCursor(plainBlock, htmlBlock, frag.name);
+  const handleInsertResourceSlot = useCallback(async (item: DedicatedResourceSlotItem) => {
+    const slotName = item.slotName.trim();
+    if (!slotName) return;
+    const html = buildResourceSlotInsertHtml(slotName, item.module);
+    await insertAtCursor(slotName, html, slotName);
   }, [insertAtCursor]);
 
   const performUpdate = useCallback(async () => {
@@ -433,7 +472,7 @@ export function GeneralTemplateEditor({ entry, onBack, onUpdated }: Props) {
           <div className="px-4 py-3 border-b border-slate-200">
             <h3 className="text-sm font-semibold text-slate-900">插入辅助</h3>
             <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
-              在左侧文档中点击定位光标，再点右侧 <span className="font-medium text-slate-600">+</span> 插入变量或资源
+              在左侧文档中点击定位光标，再点右侧 <span className="font-medium text-slate-600">+</span> 插入变量或专有资源变量名称（全库汇总，与品类无关）
             </p>
             {!editorReady && (
               <p className="text-[11px] text-amber-700 mt-1.5 leading-relaxed">
@@ -460,10 +499,10 @@ export function GeneralTemplateEditor({ entry, onBack, onUpdated }: Props) {
               }`}
             >
               <FileText className="w-3.5 h-3.5" />
-              资源
+              专有资源
             </button>
           </div>
-          <div className="flex-1 overflow-y-auto p-3 space-y-2">
+          <div className={activeTab === 'resources' ? 'flex-1 min-h-0 flex' : 'flex-1 overflow-y-auto p-3 space-y-2'}>
             {activeTab === 'variables' && (
               <div className="space-y-2">
                 {globalVariables.map((v) => (
@@ -491,46 +530,78 @@ export function GeneralTemplateEditor({ entry, onBack, onUpdated }: Props) {
             )}
             {activeTab === 'resources' && (
               <>
-                <div className="relative mb-2">
-                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    value={resourceQuery}
-                    onChange={(e) => setResourceQuery(e.target.value)}
-                    placeholder="按名称查询…"
-                    className="w-full pl-7 pr-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                  />
-                </div>
-                {filteredFragments.length === 0 ? (
-                  <p className="text-xs text-slate-500">暂无资源，请先在资源管理中创建。</p>
-                ) : (
-                  filteredFragments.map((frag) => (
-                    <div
-                      key={frag.id}
-                      className="flex items-start justify-between gap-2 px-3 py-2 border border-slate-200 rounded-lg hover:border-blue-300 hover:bg-blue-50/30 transition-colors"
-                    >
-                      <div className="min-w-0">
-                        <div className="text-sm font-medium text-slate-800 truncate">{frag.name}</div>
-                        <div className="text-xs text-slate-500 mt-0.5 line-clamp-2">
-                          {stripHtmlPreview(frag.content ?? '') || '（无摘要）'}
-                        </div>
-                      </div>
+                <div className="w-[92px] shrink-0 border-r border-slate-200 p-2 space-y-1">
+                  {DEDICATED_RESOURCE_GROUPS.map((group) => {
+                    const Icon = group.icon;
+                    const isActive = activeResourceModule === group.module;
+                    return (
                       <button
+                        key={group.module}
                         type="button"
-                        onClick={() => void handleInsertResource(frag)}
-                        disabled={!editorReady}
-                        aria-label={`插入资源 ${frag.name}`}
-                        title="插入到当前光标位置"
-                        className="shrink-0 p-1 rounded hover:bg-white text-slate-500 disabled:opacity-40 disabled:cursor-not-allowed"
+                        onClick={() => {
+                          setActiveResourceModule(group.module);
+                          setResourceQuery('');
+                        }}
+                        className={`w-full flex flex-col items-center justify-center gap-1 px-1 py-2.5 text-[11px] leading-tight rounded-lg transition-colors ${
+                          isActive
+                            ? 'bg-blue-50 text-blue-600'
+                            : 'text-slate-600 hover:bg-slate-100'
+                        }`}
                       >
-                        <Plus className="w-3.5 h-3.5" />
+                        <Icon className="w-4 h-4 shrink-0" />
+                        <span className="text-center px-0.5">{group.label}</span>
                       </button>
+                    );
+                  })}
+                </div>
+                <div className="flex-1 overflow-y-auto p-3 space-y-2 min-w-0">
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={resourceQuery}
+                      onChange={(e) => setResourceQuery(e.target.value)}
+                      placeholder="按变量名称查询…"
+                      className="w-full pl-7 pr-2 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                    />
+                  </div>
+                  {slotsInActiveModule.length === 0 ? (
+                    <p className="text-xs text-slate-500 leading-relaxed">
+                      {resourceQuery.trim()
+                        ? `「${DEDICATED_RESOURCE_MODULE_LABELS[activeResourceModule]}」下没有符合筛选条件的变量名称。`
+                        : `「${DEDICATED_RESOURCE_MODULE_LABELS[activeResourceModule]}」暂无已登记的变量名称。请在专用资源管理中填写「变量名称」（不限品类）。`}
+                    </p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {slotsInActiveModule.map((item) => (
+                        <div
+                          key={`${item.module}-${item.slotName}`}
+                          className="flex items-center justify-between gap-2 px-3 py-2 border border-slate-200 rounded-lg hover:border-blue-300 hover:bg-blue-50/30 transition-colors"
+                        >
+                          <div className="min-w-0 text-sm font-medium text-slate-800 truncate font-mono">
+                            {item.slotName}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => void handleInsertResourceSlot(item)}
+                            disabled={!editorReady}
+                            aria-label={`插入变量名称 ${item.slotName}`}
+                            title="插入变量名称到当前光标位置"
+                            className="shrink-0 p-1 rounded hover:bg-white text-slate-500 disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
                     </div>
-                  ))
-                )}
+                  )}
+                  {insertHint ? (
+                    <p className="text-[11px] text-slate-500 leading-relaxed pt-1">{insertHint}</p>
+                  ) : null}
+                </div>
               </>
             )}
-            {insertHint ? (
+            {activeTab === 'variables' && insertHint ? (
               <p className="text-[11px] text-slate-500 leading-relaxed pt-1">{insertHint}</p>
             ) : null}
           </div>
