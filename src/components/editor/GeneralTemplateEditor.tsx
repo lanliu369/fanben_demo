@@ -171,10 +171,7 @@ export function GeneralTemplateEditor({ entry, onBack, onUpdated }: Props) {
   const editorContainerIdRef = useRef(`wps-gt-${entry.id}-${Math.random().toString(36).slice(2, 8)}`);
 
   const globalVariables = useMemo(() => getGlobalTemplateVariables(), []);
-  const resourceSlots = useMemo(
-    () => collectDedicatedResourceSlotCatalog(getMockTextFragments()),
-    // 每次渲染读档，与资源管理保存后回到编辑器时保持一致
-  );
+  const resourceSlots = collectDedicatedResourceSlotCatalog(getMockTextFragments());
 
   const slotsInActiveModule = useMemo(() => {
     const q = resourceQuery.trim().toLowerCase();
